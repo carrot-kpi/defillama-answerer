@@ -1,0 +1,25 @@
+ipfs_api_endpoint: "http://127.0.0.1:5001"
+db_connection_string: "postgresql://user:password@127.0.0.1:5432/defillama-answerer"
+web3_storage_api_key: "key"
+api:
+  host: "127.0.0.1"
+  port: 8080
+chain_configs:
+  # gnosis
+  100:
+    ws_rpc_endpoint: "http://127.0.0.1:1111"
+    answerer_private_key: "key"
+    logs_blocks_range: 5000
+    template_id: 2
+    factory:
+      address: "0xD503Bdcc3Cd38D3cEaBa1efA43EFCc03b7Fb1CbA"
+      deployment_block: 28680516
+  # sepolia
+  11155111:
+    ws_rpc_endpoint: "http://127.0.0.1:2222/"
+    answerer_private_key: "key"
+    logs_blocks_range: 2000
+    template_id: 3
+    factory:
+      address: "0x44bBb970E534bCE4B42C5a34b15d5B049704417A"
+      deployment_block: 3784913

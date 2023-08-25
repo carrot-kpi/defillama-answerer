@@ -1,0 +1,20 @@
+{
+    "type": "module",
+    "name": "@carrot-kpi/defillama-answerer",
+    "author": "Federico Luzzi <federico.luzzi@protonmail.com>",
+    "version": "0.1.0",
+    "license": "GPL-3.0-or-later",
+    "private": true,
+    "scripts": {
+        "build": "pnpm clean && cargo build",
+        "clean": "rimraf ./target",
+        "test": "cargo test"
+    },
+    "devDependencies": {
+        "@commitlint/cli": "^17.6.6",
+        "@commitlint/config-conventional": "^17.6.6",
+        "husky": "^8.0.3",
+        "prettier": "^3.0.0",
+        "rimraf": "^3.0.2"
+    }
+}

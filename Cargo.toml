@@ -1,0 +1,45 @@
+[package]
+name = "defillama-answerer"
+version = "0.1.0"
+edition = "2021"
+
+[profile.release]
+debug = false
+strip = true
+
+[dependencies]
+anyhow = "1.0.71"
+async-trait = "0.1.73"
+backoff = { version = "0.4.0", features = ["tokio"] }
+confy = { version = "0.5.1", features = [
+    "yaml_conf",
+], default-features = false }
+diesel = { version = "2.1.0", features = ["postgres", "r2d2", "serde_json"] }
+diesel_migrations = { version = "2.1.0", features = ["postgres"] }
+ethers = { version = "2.0.7", features = ["ws", "rustls"] }
+governor = "0.5.1"
+reqwest = { version = "0.11.18", features = [
+    "serde_json",
+    "multipart",
+    "stream",
+] }
+serde = { version = "1.0.152", features = ["derive"] }
+serde_json = "1.0.91"
+tokio = { version = "1.23.0", features = ["macros", "rt-multi-thread"] }
+tracing = "0.1.36"
+tracing-futures = { version = "0.2.5" }
+tracing-subscriber = { version = "0.3.16", features = [
+    "fmt",
+    "env-filter",
+    "json",
+] }
+utoipa = "3.5.0"
+utoipa-swagger-ui = "3.1.5"
+warp = "0.3.5"
+
+[build-dependencies]
+anyhow = "1.0.71"
+ethers = { version = "2.0.7", features = ["abigen"] }
+
+[dev-dependencies]
+mockito = "1.1.0"
