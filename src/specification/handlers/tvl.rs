@@ -21,8 +21,21 @@ pub struct TvlHandler;
 impl<'a> Validate<'a, TvlPayload> for TvlHandler {
     async fn validate(payload: &TvlPayload) -> anyhow::Result<bool> {
         let current_timestamp = get_unix_timestamp()?;
-        Ok(payload.timestamp > current_timestamp
-            && get_current_tvl(&payload.protocol).await.is_ok())
+        if payload.timestamp <= current_timestamp {
+            return Ok(false);
+        }
+
+        match get_current_tvl(&payload.protocol).await {
+            Ok(_) => Ok(true),
+            Err(error) => {
+                tracing::error!(
+                    "error fetching tvl from defillama for protocol {} - {}",
+                    payload.protocol,
+                    error
+                );
+                Ok(false)
+            }
+        }
     }
 }
 
@@ -35,6 +48,7 @@ impl<'a> Answer<'a, TvlPayload> for TvlHandler {
         }
 
         let raw_tvl = get_current_tvl(&payload.protocol).await?;
-        Ok(Some(U256::from(raw_tvl) * U256::from(10 ^ 18)))
+        let converted = (raw_tvl * 10e18) as u128;
+        Ok(Some(U256::from(converted)))
     }
 }
