@@ -3,7 +3,7 @@ services:
     kubo:
         image: ipfs/kubo:latest
         ports:
-            - 8080:8080
+            - 8090:8080
             - 5001:5001
     postgres:
         image: postgres:latest
@@ -12,3 +12,4 @@ services:
         environment:
             POSTGRES_USER: user
             POSTGRES_PASSWORD: password
+            POSTGRES_DB: defillama-answerer
