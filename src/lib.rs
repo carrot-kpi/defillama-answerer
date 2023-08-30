@@ -19,7 +19,7 @@ use diesel::{
 };
 use tokio::task::JoinSet;
 
-use crate::{commons::ChainExecutionContext, http_client::HttpClient};
+use crate::{commons::ChainExecutionContext, defillama::DefiLlamaClient, http_client::HttpClient};
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations");
@@ -48,6 +48,10 @@ pub async fn main() -> anyhow::Result<()> {
         ))
     });
 
+    let defillama_client = Arc::new(DefiLlamaClient::new(
+        reqwest::Url::parse("https://api.llama.fi").unwrap(), // guaranteed to be a valid url
+    ));
+
     let mut join_set = JoinSet::new();
     for (chain_id, chain_config) in config.chain_configs.into_iter() {
         let ws_rpc_endpoint = chain_config.ws_rpc_endpoint.as_str();
@@ -65,6 +69,7 @@ pub async fn main() -> anyhow::Result<()> {
             template_id: chain_config.template_id,
             answerer_private_key: Arc::new(chain_config.answerer_private_key),
             ipfs_http_client: ipfs_http_client.clone(),
+            defillama_client: defillama_client.clone(),
             web3_storage_http_client: web3_storage_http_client.clone(),
             db_connection_pool: db_connection_pool.clone(),
             factory_config: chain_config.factory,
@@ -73,7 +78,11 @@ pub async fn main() -> anyhow::Result<()> {
         join_set.spawn(scanner::scan(execution_context));
     }
 
-    join_set.spawn(api::serve(config.api.host, config.api.port));
+    join_set.spawn(api::serve(
+        config.api.host,
+        config.api.port,
+        defillama_client.clone(),
+    ));
 
     // wait forever unless some task stops with an error
     while let Some(res) = join_set.join_next().await {

@@ -1,24 +1,42 @@
-use std::fmt::Display;
+use std::str::FromStr;
 
 use anyhow::Context;
+use reqwest::{Method, Url};
+use rust_decimal::Decimal;
 
-fn get_api_endpoint<T: AsRef<str> + Display>(path_and_maybe_query: T) -> String {
-    format!("https://api.llama.fi{path_and_maybe_query}")
+use crate::http_client::HttpClient;
+
+// TODO: implement rate limiting
+pub struct DefiLlamaClient {
+    http_client: HttpClient,
 }
 
-pub async fn get_current_tvl(protocol: &String) -> anyhow::Result<f64> {
-    Ok(reqwest::get(get_api_endpoint(format!("/tvl/{protocol}")))
-        .await
-        .context(format!(
-            "could not get currentl tvl for protocol {}",
-            protocol
-        ))?
-        // FIXME: maybe handle this in a safer way to avoid conversion error if
-        // dealing with extremely big numbers
-        .json::<f64>()
-        .await
-        .context(format!(
-            "could not convert raw protocol tvl response to number for protocol {}",
-            protocol
-        ))?)
+impl DefiLlamaClient {
+    pub fn new(base_url: Url) -> Self {
+        Self {
+            http_client: HttpClient::new(base_url),
+        }
+    }
+
+    pub async fn get_current_tvl(&self, protocol: &String) -> anyhow::Result<Decimal> {
+        let raw = self
+            .http_client
+            .request(Method::GET, format!("/tvl/{protocol}"))?
+            .send()
+            .await
+            .context(format!(
+                "could not get currentl tvl for protocol {}",
+                protocol
+            ))?
+            // FIXME: maybe handle this in a safer way to avoid conversion error if
+            // dealing with extremely big numbers
+            .text()
+            .await
+            .context(format!(
+                "could not convert raw protocol tvl response to number for protocol {}",
+                protocol
+            ))?;
+        Ok(Decimal::from_str(raw.as_str())
+            .context(format!("could not convert {} to decimal", raw))?)
+    }
 }

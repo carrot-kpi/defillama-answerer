@@ -1,6 +1,6 @@
 pub mod handlers;
 
-use std::fmt::Debug;
+use std::{fmt::Debug, sync::Arc};
 
 use async_trait::async_trait;
 use diesel::{sql_types::Jsonb, AsExpression, FromSqlRow};
@@ -8,7 +8,7 @@ use ethers::types::U256;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::specification::handlers::tvl::TvlHandler;
+use crate::{defillama::DefiLlamaClient, specification::handlers::tvl::TvlHandler};
 
 use self::handlers::tvl::TvlPayload;
 
@@ -22,19 +22,22 @@ pub enum Specification {
 
 #[async_trait]
 pub trait Validate<'a, P: Serialize + Deserialize<'a> + Debug + PartialEq> {
-    async fn validate(payload: &P) -> anyhow::Result<bool>;
+    async fn validate(payload: &P, defillama_client: Arc<DefiLlamaClient>) -> anyhow::Result<bool>;
 }
 
 #[async_trait]
 pub trait Answer<'a, P: Serialize + Deserialize<'a> + Debug + PartialEq> {
-    async fn answer(payload: &P) -> anyhow::Result<Option<U256>>;
+    async fn answer(
+        payload: &P,
+        defillama_client: Arc<DefiLlamaClient>,
+    ) -> anyhow::Result<Option<U256>>;
 }
 
 macro_rules! impl_spec_validation_and_handling {
     ($($spec_variant: ident => $handler: ident),*) => {
-    pub async fn validate<'a>(specification: &Specification) -> bool {
+    pub async fn validate<'a>(specification: &Specification, defillama_client: Arc<DefiLlamaClient>) -> bool {
             let result = match specification {
-                $(Specification::$spec_variant(payload) => $handler::validate(&payload),)*
+                $(Specification::$spec_variant(payload) => $handler::validate(&payload, defillama_client),)*
             }.await;
             match result {
                 Ok(val) => val,
@@ -45,9 +48,9 @@ macro_rules! impl_spec_validation_and_handling {
             }
         }
 
-        pub async fn answer<'a>(specification: &Specification) -> Option<U256> {
+        pub async fn answer<'a>(specification: &Specification, defillama_client: Arc<DefiLlamaClient>) -> Option<U256> {
             let result = match specification {
-                $(Specification::$spec_variant(payload) => $handler::answer(&payload),)*
+                $(Specification::$spec_variant(payload) => $handler::answer(&payload, defillama_client),)*
             }.await;
             match result {
                 Ok(val) => val,

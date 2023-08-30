@@ -20,6 +20,7 @@ use crate::{
         kpi_token::KPIToken,
     },
     db::models,
+    defillama::DefiLlamaClient,
     http_client::HttpClient,
     ipfs,
     signer::Signer,
@@ -137,6 +138,7 @@ pub async fn acknowledge_active_oracles(
     oracles_data: Vec<DefiLlamaOracleData>,
     db_connection_pool: Pool<ConnectionManager<PgConnection>>,
     ipfs_http_client: Arc<HttpClient>,
+    defillama_client: Arc<DefiLlamaClient>,
     web3_storage_http_client: Option<Arc<HttpClient>>,
 ) {
     let mut join_set = JoinSet::new();
@@ -148,6 +150,7 @@ pub async fn acknowledge_active_oracles(
                 data.specification_cid,
                 db_connection_pool.clone(),
                 ipfs_http_client.clone(),
+                defillama_client.clone(),
                 web3_storage_http_client.clone(),
             )
             .instrument(tracing::error_span!("ack", chain_id)),
@@ -169,11 +172,12 @@ pub async fn acknowledge_active_oracle(
     specification_cid: String,
     db_connection_pool: Pool<ConnectionManager<PgConnection>>,
     ipfs_http_client: Arc<HttpClient>,
+    defillama_client: Arc<DefiLlamaClient>,
     web3_storage_http_client: Option<Arc<HttpClient>>,
 ) -> anyhow::Result<()> {
     match ipfs::fetch_specification_with_retry(ipfs_http_client.clone(), &specification_cid).await {
         Ok(specification) => {
-            if !specification::validate(&specification).await {
+            if !specification::validate(&specification, defillama_client).await {
                 tracing::error!("specification validation failed for oracle at address {}, this won't be handled", oracle_address);
                 return Ok(());
             }
