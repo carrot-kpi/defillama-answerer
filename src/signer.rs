@@ -4,7 +4,7 @@ use anyhow::{anyhow, Context};
 use ethers::{
     middleware::SignerMiddleware,
     providers::{Middleware, Provider, Ws},
-    signers::LocalWallet,
+    signers::{LocalWallet, Signer as EthersSigner},
 };
 
 pub type Signer = SignerMiddleware<Provider<Ws>, LocalWallet>;
@@ -31,6 +31,9 @@ pub async fn get_signer(
     if chain_id_from_provider.as_u64() != expected_chain_id {
         Err(anyhow!("chain id mismatch, provider gave {chain_id_from_provider} while {expected_chain_id} was expected"))
     } else {
-        Ok(Arc::new(SignerMiddleware::new(provider, answerer_wallet)))
+        Ok(Arc::new(SignerMiddleware::new(
+            provider,
+            answerer_wallet.with_chain_id(expected_chain_id),
+        )))
     }
 }
