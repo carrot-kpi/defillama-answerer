@@ -20,7 +20,7 @@ use tracing_futures::Instrument;
 use crate::{
     commons::ChainExecutionContext,
     contracts::{defi_llama_oracle::DefiLlamaOracle, factory::CreateTokenFilter},
-    db::models::{self, Snapshot},
+    db::models::{self, Checkpoint},
     scanner::commons::{acknowledge_active_oracles, parse_kpi_token_creation_logs},
     signer::{get_signer, Signer},
     specification::{self},
@@ -52,7 +52,7 @@ pub async fn scan(
         {
             Ok(stream) => stream,
             Err(error) => {
-                tracing::error!("{}", error);
+                tracing::error!("{:#}", error);
                 continue;
             }
         };
@@ -62,24 +62,20 @@ pub async fn scan(
         while let Some(block) = stream.next().await {
             let block_number = block.number.unwrap();
 
-            tracing::info!("handling block {}", block_number);
-
             handle_new_active_oracles(signer.clone(), block, context.clone()).await;
             handle_active_oracles_answering(signer.clone(), context.clone()).await;
-
-            
 
             if *update_snapshot_block_number.lock().await {
                 let database_connection = &mut context
                     .db_connection_pool
                     .get()
                     .context("could not get new connection from pool")?;
-                if let Err(error) = Snapshot::update(
+                if let Err(error) = Checkpoint::update(
                     database_connection,
                     context.chain_id,
                     block_number.as_u32() as i64,
                 ) {
-                    tracing::error!("could not update snapshot block number - {}", error);
+                    tracing::error!("could not update snapshot block number - {:#}", error);
                 }
             }
         }
@@ -100,7 +96,7 @@ async fn message_receiver(
             }
         }
         Err(error) => {
-            tracing::error!("error while receiving control over snapshot block number update from past indexer - {}", error);
+            tracing::error!("error while receiving control over snapshot block number update from past indexer - {:#}", error);
         }
     }
 }
@@ -138,7 +134,7 @@ async fn handle_new_active_oracles(
 
     if oracles_data.len() > 0 {
         tracing::info!(
-            "block {} - detected {} new active oracles",
+            "block {} - detected {} new active oracle(s)",
             block_number,
             oracles_data.len()
         );
@@ -161,7 +157,7 @@ async fn handle_active_oracles_answering(
     let mut db_connection = match context.db_connection_pool.get() {
         Ok(connection) => connection,
         Err(error) => {
-            tracing::error!("could not get new connection from pool - {}", error);
+            tracing::error!("could not get new connection from pool - {:#}", error);
             return;
         }
     };
@@ -171,13 +167,18 @@ async fn handle_active_oracles_answering(
             Ok(oracles) => oracles,
             Err(error) => {
                 tracing::error!(
-                    "could not get currently active oracles in chain with id {} - {}",
+                    "could not get currently active oracles in chain with id {} - {:#}",
                     context.chain_id,
                     error
                 );
                 return;
             }
         };
+
+    let active_oracles_len = active_oracles.len();
+    if active_oracles_len > 0 {
+        tracing::info!("trying to answer {} active oracles", active_oracles_len);
+    }
 
     let mut join_set: JoinSet<Result<(), anyhow::Error>> = JoinSet::new();
     for active_oracle in active_oracles.into_iter() {
@@ -200,6 +201,11 @@ async fn answer_active_oracle(
 ) -> anyhow::Result<()> {
     // TODO: properly implement this
     if let Some(answer) = specification::answer(&active_oracle.specification).await {
+        tracing::info!(
+            "answering active oracle 0x{:X} with value {}",
+            active_oracle.address.deref(),
+            answer
+        );
         let oracle = DefiLlamaOracle::new(active_oracle.address.0, signer);
         let tx = oracle.finalize(answer);
         let pending_tx = tx.send().await?;
@@ -209,6 +215,12 @@ async fn answer_active_oracle(
             .get()
             .context("could not get new connection from pool")?;
         active_oracle.delete(database_connection)?;
+
+        tracing::info!(
+            "oracle 0x{:X} successfully finalized with value {}",
+            active_oracle.address.deref(),
+            answer
+        );
     }
     Ok(())
 }

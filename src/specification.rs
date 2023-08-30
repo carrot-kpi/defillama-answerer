@@ -12,7 +12,7 @@ use crate::specification::handlers::tvl::TvlHandler;
 
 use self::handlers::tvl::TvlPayload;
 
-#[derive(FromSqlRow, AsExpression, Serialize, Deserialize, Debug, PartialEq, ToSchema)]
+#[derive(FromSqlRow, AsExpression, Serialize, Deserialize, Debug, PartialEq, Clone, ToSchema)]
 #[serde(tag = "metric", content = "payload")]
 #[serde(rename_all = "camelCase")]
 #[diesel(sql_type = Jsonb)]
@@ -39,7 +39,7 @@ macro_rules! impl_spec_validation_and_handling {
             match result {
                 Ok(val) => val,
                 Err(error) => {
-                    tracing::error!("validation failed for specification - {}", error);
+                    tracing::error!("validation failed for specification - {:#}", error);
                     return false;
                 }
             }
@@ -52,7 +52,7 @@ macro_rules! impl_spec_validation_and_handling {
             match result {
                 Ok(val) => val,
                 Err(error) => {
-                    tracing::error!("answering failed for specification - {}", error);
+                    tracing::error!("answering failed for specification - {:#}", error);
                     return None;
                 }
             }

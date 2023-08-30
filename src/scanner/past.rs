@@ -41,10 +41,10 @@ pub async fn scan<'a>(
         .get()
         .context("could not get database connection")?;
     let snapshot_block =
-        match models::Snapshot::get_for_chain_id(&mut db_connection, context.chain_id) {
+        match models::Checkpoint::get_for_chain_id(&mut db_connection, context.chain_id) {
             Ok(snapshot_block) => Some(u64::try_from(snapshot_block.block_number).unwrap()),
             Err(error) => {
-                tracing::error!("could not get snapshot block - {}", error);
+                tracing::error!("could not get snapshot block - {:#}", error);
                 None
             }
         };
@@ -81,7 +81,7 @@ pub async fn scan<'a>(
             Ok(logs) => logs,
             Err(error) => {
                 tracing::error!(
-                    "error fetching logs from block {} to {}: {}",
+                    "error fetching logs from block {} to {}: {:#}",
                     from_block,
                     to_block,
                     error
@@ -126,7 +126,7 @@ pub async fn scan<'a>(
     match sender.send(true) {
         Err(error) => {
             return Err(anyhow::anyhow!(
-                "could not send snapshot updates ownership message to present indexer - {}",
+                "could not send snapshot updates ownership message to present indexer - {:#}",
                 error
             ))
         }

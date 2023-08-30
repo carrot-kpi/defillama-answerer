@@ -9,7 +9,7 @@ use crate::{
     specification::{Answer, Validate},
 };
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, ToSchema)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, ToSchema)]
 pub struct TvlPayload {
     pub protocol: String,
     pub timestamp: u64,
@@ -29,7 +29,7 @@ impl<'a> Validate<'a, TvlPayload> for TvlHandler {
             Ok(_) => Ok(true),
             Err(error) => {
                 tracing::error!(
-                    "error fetching tvl from defillama for protocol {} - {}",
+                    "error fetching tvl from defillama for protocol {} - {:#}",
                     payload.protocol,
                     error
                 );
