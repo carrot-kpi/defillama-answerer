@@ -6,12 +6,19 @@ use warp::{body, http, path, post, reply, Filter, Rejection, Reply};
 use crate::specification::{self, Specification};
 
 pub fn handlers() -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
+    let cors = warp::cors()
+        .allow_any_origin()
+        .allow_method(http::Method::POST)
+        .allow_header("Content-Type")
+        .max_age(600);
+
     let validate = path("specifications")
         .and(path("validations"))
         .and(post())
         .and(path::end())
         .and(body::json())
-        .and_then(validate_specification);
+        .and_then(validate_specification)
+        .with(cors);
 
     validate
 }
@@ -38,11 +45,9 @@ pub async fn validate_specification(raw_specification: Value) -> Result<impl Rep
                 http::StatusCode::BAD_REQUEST
             },
         )),
-        Err(_) => {
-            Ok(reply::with_status(
-                reply::reply(),
-                http::StatusCode::BAD_REQUEST,
-            ))
-        }
+        Err(_) => Ok(reply::with_status(
+            reply::reply(),
+            http::StatusCode::BAD_REQUEST,
+        )),
     }
 }
