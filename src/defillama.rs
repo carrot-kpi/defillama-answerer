@@ -25,7 +25,7 @@ impl DefiLlamaClient {
             .send()
             .await
             .context(format!(
-                "could not get currentl tvl for protocol {}",
+                "could not get current tvl for protocol {}",
                 protocol
             ))?
             // FIXME: maybe handle this in a safer way to avoid conversion error if
