@@ -62,7 +62,7 @@ impl ActiveOracle {
     }
 }
 
-#[derive(Queryable, Selectable, Insertable)]
+#[derive(Queryable, Selectable, Insertable, Debug, PartialEq)]
 #[diesel(table_name = checkpoints)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct Checkpoint {
@@ -96,10 +96,20 @@ impl Checkpoint {
     pub fn get_for_chain_id(
         connection: &mut PgConnection,
         chain_id: u64,
-    ) -> anyhow::Result<Checkpoint> {
+    ) -> anyhow::Result<Option<Checkpoint>> {
         let chain_id = i32::try_from(chain_id).unwrap(); // this should never panic
-        Ok(checkpoints::dsl::checkpoints
+        match checkpoints::dsl::checkpoints
             .find(chain_id)
-            .first(connection)?)
+            .first(connection)
+        {
+            Ok(checkpoint) => Ok(Some(checkpoint)),
+            Err(error) => {
+                if error == diesel::NotFound {
+                    Ok(None)
+                } else {
+                    Err(anyhow::anyhow!(error))
+                }
+            }
+        }
     }
 }

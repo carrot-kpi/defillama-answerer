@@ -42,6 +42,7 @@ pub async fn main() -> anyhow::Result<()> {
     let ipfs_http_client = Arc::new(HttpClient::new(ipfs_api_endpoint.to_owned()));
 
     let web3_storage_http_client = config.web3_storage_api_key.map(|token| {
+        tracing::info!("web3.storage pinning is enabled");
         Arc::new(HttpClient::new_with_bearer_auth(
             reqwest::Url::parse("https://api.web3.storage").unwrap(), // guaranteed to be a valid url
             token,
