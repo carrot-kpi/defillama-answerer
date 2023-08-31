@@ -45,7 +45,7 @@ pub async fn scan<'a>(
                 // realistically, the following should never happen
                 u64::try_from(checkpoint.block_number).expect(
                     format!(
-                        "could not convert checkpoint block number {} to usigned integer",
+                        "could not convert checkpoint block number {} to unsigned integer",
                         checkpoint.block_number
                     )
                     .as_str(),
