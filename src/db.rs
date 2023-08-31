@@ -3,6 +3,7 @@ pub mod schema;
 
 use std::ops::Deref;
 
+use anyhow::Context;
 use diesel::{
     deserialize::{self, FromSql},
     pg::{Pg, PgValue},
@@ -10,8 +11,7 @@ use diesel::{
     sql_types::{Jsonb, Text},
     AsExpression, FromSqlRow,
 };
-use ethers::types::Address;
-use serde_json::Value;
+use ethers::{types::Address, utils};
 
 use crate::specification::Specification;
 
@@ -29,28 +29,33 @@ impl Deref for DbAddress {
 
 impl FromSql<Text, Pg> for DbAddress {
     fn from_sql(bytes: PgValue) -> deserialize::Result<Self> {
+        let str = String::from_utf8_lossy(bytes.as_bytes());
         Ok(DbAddress(
-            String::from_utf8_lossy(bytes.as_bytes()).parse::<Address>()?,
+            utils::parse_checksummed(str.as_ref(), None).context(format!(
+                "could not parse checksummed address {} from database",
+                str.as_ref()
+            ))?,
         ))
     }
 }
 
 impl ToSql<Text, Pg> for DbAddress {
     fn to_sql<'b>(&'b self, out: &mut serialize::Output<'b, '_, Pg>) -> serialize::Result {
-        let value = self.to_string();
+        let value = utils::to_checksum(&self.0, None);
         <String as ToSql<Text, Pg>>::to_sql(&value, &mut out.reborrow())
     }
 }
 
 impl FromSql<Jsonb, Pg> for Specification {
     fn from_sql(value: PgValue) -> deserialize::Result<Self> {
-        Ok(serde_json::from_slice(value.as_bytes())?)
+        let value = <serde_json::Value as FromSql<Jsonb, Pg>>::from_sql(value)?;
+        Ok(serde_json::from_value(value)?)
     }
 }
 
 impl ToSql<Jsonb, Pg> for Specification {
     fn to_sql<'b>(&'b self, out: &mut serialize::Output<'b, '_, Pg>) -> serialize::Result {
         let value = serde_json::to_value(self)?;
-        <Value as ToSql<Jsonb, Pg>>::to_sql(&value, &mut out.reborrow())
+        <serde_json::Value as ToSql<Jsonb, Pg>>::to_sql(&value, &mut out.reborrow())
     }
 }

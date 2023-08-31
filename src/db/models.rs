@@ -5,11 +5,11 @@ use ethers::types::Address;
 use crate::specification::Specification;
 
 use super::{
-    schema::{active_oracles, snapshots},
+    schema::{active_oracles, checkpoints},
     DbAddress,
 };
 
-#[derive(Queryable, Selectable, Insertable)]
+#[derive(Queryable, Selectable, Insertable, Debug, PartialEq)]
 #[diesel(table_name = active_oracles)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct ActiveOracle {
@@ -62,15 +62,15 @@ impl ActiveOracle {
     }
 }
 
-#[derive(Queryable, Selectable, Insertable)]
-#[diesel(table_name = snapshots)]
+#[derive(Queryable, Selectable, Insertable, Debug, PartialEq)]
+#[diesel(table_name = checkpoints)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
-pub struct Snapshot {
+pub struct Checkpoint {
     pub chain_id: i32,
     pub block_number: i64,
 }
 
-impl Snapshot {
+impl Checkpoint {
     pub fn update(
         connection: &mut PgConnection,
         chain_id: u64,
@@ -78,16 +78,16 @@ impl Snapshot {
     ) -> anyhow::Result<()> {
         let chain_id: i32 = i32::try_from(chain_id).unwrap(); // this should never panic
 
-        let snapshot = Snapshot {
+        let snapshot = Checkpoint {
             chain_id,
             block_number,
         };
 
-        diesel::insert_into(snapshots::dsl::snapshots)
+        diesel::insert_into(checkpoints::dsl::checkpoints)
             .values(&snapshot)
-            .on_conflict(snapshots::dsl::chain_id)
+            .on_conflict(checkpoints::dsl::chain_id)
             .do_update()
-            .set(snapshots::dsl::block_number.eq(block_number))
+            .set(checkpoints::dsl::block_number.eq(block_number))
             .execute(connection)?;
 
         Ok(())
@@ -96,8 +96,20 @@ impl Snapshot {
     pub fn get_for_chain_id(
         connection: &mut PgConnection,
         chain_id: u64,
-    ) -> anyhow::Result<Snapshot> {
+    ) -> anyhow::Result<Option<Checkpoint>> {
         let chain_id = i32::try_from(chain_id).unwrap(); // this should never panic
-        Ok(snapshots::dsl::snapshots.find(chain_id).first(connection)?)
+        match checkpoints::dsl::checkpoints
+            .find(chain_id)
+            .first(connection)
+        {
+            Ok(checkpoint) => Ok(Some(checkpoint)),
+            Err(error) => {
+                if error == diesel::NotFound {
+                    Ok(None)
+                } else {
+                    Err(anyhow::anyhow!(error))
+                }
+            }
+        }
     }
 }

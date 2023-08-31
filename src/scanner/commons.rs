@@ -6,9 +6,9 @@ use diesel::{
     r2d2::{ConnectionManager, Pool},
 };
 use ethers::{
-    abi::{Detokenize, RawLog, Token, Tokenizable},
+    abi::RawLog,
     contract::{EthLogDecode, Multicall},
-    types::{Address, Bytes, Log},
+    types::{Address, Log},
 };
 use tokio::task::JoinSet;
 use tracing_futures::Instrument;
@@ -20,6 +20,7 @@ use crate::{
         kpi_token::KPIToken,
     },
     db::models,
+    defillama::DefiLlamaClient,
     http_client::HttpClient,
     ipfs,
     signer::Signer,
@@ -43,7 +44,7 @@ pub async fn parse_kpi_token_creation_logs(
         {
             Ok(oracle_data) => oracles_data.extend(oracle_data),
             Err(error) => {
-                tracing::warn!("could not extract oracle data from log - {}", error);
+                tracing::warn!("could not extract oracle data from log - {:#}", error);
                 continue;
             }
         };
@@ -83,77 +84,53 @@ pub async fn parse_kpi_token_creation_log(
         match Multicall::new_with_chain_id(signer.clone(), None, Some(chain_id))?
             .add_call(oracle.finalized(), false)
             .add_call(oracle.template(), false)
-            .add_call(oracle.specification(), true)
-            .call_raw()
+            .call::<(bool, Template)>()
             .await
         {
-            Ok(results) => {
-                let results_len = results.len();
-                if results_len != 3 {
-                    tracing::error!(
-                        "inconsistent results len {} (expected 3) while using multicall to fetch data for oracle at address {}",
-                        results_len,
+            Ok((finalized, template)) => {
+                if finalized {
+                    tracing::info!(
+                        "oracle with address {} already finalized, skipping",
                         oracle_address
                     );
                     continue;
                 }
 
-                let mut results_iter = results.into_iter();
+                if template.id.as_u64() != oracle_template_id {
+                    tracing::info!(
+                        "oracle with address {} doesn't have the right template id, skipping",
+                        oracle_address
+                    );
+                    continue;
+                }
 
-                let specification =
-                    match parse_multicall_result::<String>(results_iter.nth(2).unwrap()) {
-                        Some(specification) => specification,
-                        None => {
-                            // if the oracle has no specification function it automatically is not a defillama
-                            // oracle, so we're not interested in it
-                            continue;
-                        }
-                    };
-
-                let finalized = match parse_multicall_result::<bool>(results_iter.nth(0).unwrap()) {
-                    Some(finalized) => finalized,
-                    None => {
+                let specification = match oracle.specification().await {
+                    Ok(specification) => specification,
+                    Err(error) => {
                         tracing::error!(
-                            "could not fetch finalization status for oracle at address {}",
-                            oracle_address
+                            "could not fetch specification cid for oracle at address {}, skipping - {:#}",
+                            oracle_address,
+                            error
                         );
                         continue;
                     }
                 };
 
-                let template =
-                    match parse_multicall_result::<Template>(results_iter.nth(1).unwrap()) {
-                        Some(template) => template,
-                        None => {
-                            tracing::error!(
-                                "could not fetch template for oracle at address {}",
-                                oracle_address
-                            );
-                            continue;
-                        }
-                    };
-
-                if !finalized && template.id.as_u64() == oracle_template_id {
-                    data.push(DefiLlamaOracleData {
-                        address: oracle_address,
-                        specification_cid: specification,
-                    });
-                }
+                data.push(DefiLlamaOracleData {
+                    address: oracle_address,
+                    specification_cid: specification,
+                });
             }
-            Err(_) => continue,
+            Err(_) => {
+                tracing::error!(
+                    "could not fetch multicall data from oracle {}",
+                    oracle_address
+                );
+            }
         };
     }
 
     Ok(data)
-}
-
-fn parse_multicall_result<D: Tokenizable + Detokenize>(result: Result<Token, Bytes>) -> Option<D> {
-    match result {
-        Ok(token) => <(bool, D)>::from_token(token)
-            .map(|(_, result)| result)
-            .ok(),
-        Err(_) => None,
-    }
 }
 
 pub async fn acknowledge_active_oracles(
@@ -161,6 +138,7 @@ pub async fn acknowledge_active_oracles(
     oracles_data: Vec<DefiLlamaOracleData>,
     db_connection_pool: Pool<ConnectionManager<PgConnection>>,
     ipfs_http_client: Arc<HttpClient>,
+    defillama_client: Arc<DefiLlamaClient>,
     web3_storage_http_client: Option<Arc<HttpClient>>,
 ) {
     let mut join_set = JoinSet::new();
@@ -172,6 +150,7 @@ pub async fn acknowledge_active_oracles(
                 data.specification_cid,
                 db_connection_pool.clone(),
                 ipfs_http_client.clone(),
+                defillama_client.clone(),
                 web3_storage_http_client.clone(),
             )
             .instrument(tracing::error_span!("ack", chain_id)),
@@ -180,7 +159,7 @@ pub async fn acknowledge_active_oracles(
     while let Some(res) = join_set.join_next().await {
         match res {
             Err(error) => {
-                tracing::error!("error while handling oracle creation - {}", error)
+                tracing::error!("error while handling oracle creation - {:#}", error)
             }
             _ => {}
         };
@@ -193,12 +172,13 @@ pub async fn acknowledge_active_oracle(
     specification_cid: String,
     db_connection_pool: Pool<ConnectionManager<PgConnection>>,
     ipfs_http_client: Arc<HttpClient>,
+    defillama_client: Arc<DefiLlamaClient>,
     web3_storage_http_client: Option<Arc<HttpClient>>,
 ) -> anyhow::Result<()> {
     match ipfs::fetch_specification_with_retry(ipfs_http_client.clone(), &specification_cid).await {
         Ok(specification) => {
-            if !specification::validate(&specification).await {
-                // TODO: maybe add some sort of warning here?
+            if !specification::validate(&specification, defillama_client).await {
+                tracing::error!("specification validation failed for oracle at address {}, this won't be handled", oracle_address);
                 return Ok(());
             }
 
@@ -226,7 +206,7 @@ pub async fn acknowledge_active_oracle(
             Ok(())
         }
         Err(error) => {
-            tracing::error!("{}", error);
+            tracing::error!("{:#}", error);
             Ok(())
         }
     }

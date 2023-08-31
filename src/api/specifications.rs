@@ -1,17 +1,30 @@
-use std::convert::Infallible;
+use std::{convert::Infallible, sync::Arc};
 
 use serde_json::Value;
 use warp::{body, http, path, post, reply, Filter, Rejection, Reply};
 
-use crate::specification::{self, Specification};
+use crate::{
+    defillama::DefiLlamaClient,
+    specification::{self, Specification},
+};
 
-pub fn handlers() -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
+pub fn handlers(
+    defillama_client: Arc<DefiLlamaClient>,
+) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
+    let cors = warp::cors()
+        .allow_any_origin()
+        .allow_method(http::Method::POST)
+        .allow_header("Content-Type")
+        .max_age(600);
+
     let validate = path("specifications")
         .and(path("validations"))
         .and(post())
         .and(path::end())
         .and(body::json())
-        .and_then(validate_specification);
+        .and(warp::any().map(move || defillama_client.clone()))
+        .and_then(validate_specification)
+        .with(cors);
 
     validate
 }
@@ -28,21 +41,22 @@ pub fn handlers() -> impl Filter<Extract = (impl Reply,), Error = Rejection> + C
         (status = 400, description = "Validation was unsuccessful and the given specification does not conform to any correct schema.")
     )
 )]
-pub async fn validate_specification(raw_specification: Value) -> Result<impl Reply, Infallible> {
+pub async fn validate_specification(
+    raw_specification: Value,
+    defillama_client: Arc<DefiLlamaClient>,
+) -> Result<impl Reply, Infallible> {
     match serde_json::from_value::<Specification>(raw_specification) {
         Ok(specification) => Ok(reply::with_status(
             reply::reply(),
-            if specification::validate(&specification).await {
+            if specification::validate(&specification, defillama_client).await {
                 http::StatusCode::NO_CONTENT
             } else {
                 http::StatusCode::BAD_REQUEST
             },
         )),
-        Err(_) => {
-            Ok(reply::with_status(
-                reply::reply(),
-                http::StatusCode::BAD_REQUEST,
-            ))
-        }
+        Err(_) => Ok(reply::with_status(
+            reply::reply(),
+            http::StatusCode::BAD_REQUEST,
+        )),
     }
 }

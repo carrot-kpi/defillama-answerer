@@ -17,14 +17,14 @@ pub async fn fetch_specification_with_retry(
 ) -> anyhow::Result<Specification> {
     let fetch = || async {
         let response = match ipfs_http_client
-            .request(Method::GET, format!("/api/v0/get?arg={cid}"))?
+            .request(Method::POST, format!("/api/v0/cat?arg={cid}"))?
             .send()
             .await
             .context(format!("could not fetch cid {cid}"))
         {
             Ok(res) => res,
             Err(err) => {
-                tracing::error!("{}", err);
+                tracing::error!("{:#}", err);
                 return Err(backoff::Error::Transient {
                     err,
                     retry_after: None,
@@ -37,10 +37,10 @@ pub async fn fetch_specification_with_retry(
         )) {
             Ok(spec) => Ok(spec),
             Err(err) => {
-                tracing::error!("{}", err);
-                // if we can't parse the raw spec to a valid spec, we just
+                tracing::error!("{:#}", err);
+                // if we can't parse the json to a valid spec, we just
                 // stop retrying
-                return Err(backoff::Error::Permanent(err));
+                Err(backoff::Error::Permanent(err))
             }
         }
     };
@@ -49,7 +49,7 @@ pub async fn fetch_specification_with_retry(
         ExponentialBackoffBuilder::new()
             .with_max_elapsed_time(Some(
                 // retry for 10 minutes
-                Duration::from_secs(6000),
+                Duration::from_secs(6_000),
             ))
             .build(),
         fetch,

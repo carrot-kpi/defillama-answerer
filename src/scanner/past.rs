@@ -26,13 +26,11 @@ pub async fn scan<'a>(
         context.chain_id,
     )
     .await?;
+
     let block_number = signer
         .get_block_number()
         .await
-        .context(format!(
-            "could not get current block number for chain {}",
-            context.chain_id
-        ))?
+        .context("could not get current block number")?
         .as_u64();
 
     let mut db_connection = context
@@ -40,15 +38,20 @@ pub async fn scan<'a>(
         .clone()
         .get()
         .context("could not get database connection")?;
-    let snapshot_block =
-        match models::Snapshot::get_for_chain_id(&mut db_connection, context.chain_id) {
-            Ok(snapshot_block) => Some(u64::try_from(snapshot_block.block_number).unwrap()),
-            Err(error) => {
-                tracing::error!("could not get snapshot block - {}", error);
-                None
-            }
-        };
-    let mut from_block = snapshot_block.unwrap_or(context.factory_config.deployment_block);
+    let checkpoint_block =
+        models::Checkpoint::get_for_chain_id(&mut db_connection, context.chain_id)
+            .context("could not get checkpoint block")?
+            .map(|checkpoint| {
+                // realistically, the following should never happen
+                u64::try_from(checkpoint.block_number).expect(
+                    format!(
+                        "could not convert checkpoint block number {} to unsigned integer",
+                        checkpoint.block_number
+                    )
+                    .as_str(),
+                )
+            });
+    let mut from_block = checkpoint_block.unwrap_or(context.factory_config.deployment_block);
     let full_range = block_number - from_block;
     let chunk_size = context.logs_blocks_range.unwrap_or(DEFAULT_LOGS_CHUNK_SIZE);
 
@@ -81,7 +84,7 @@ pub async fn scan<'a>(
             Ok(logs) => logs,
             Err(error) => {
                 tracing::error!(
-                    "error fetching logs from block {} to {}: {}",
+                    "error fetching logs from block {} to {}: {:#}",
                     from_block,
                     to_block,
                     error
@@ -113,6 +116,7 @@ pub async fn scan<'a>(
             oracles_data,
             context.db_connection_pool.clone(),
             context.ipfs_http_client.clone(),
+            context.defillama_client.clone(),
             context.web3_storage_http_client.clone(),
         )
         .await;
@@ -126,7 +130,7 @@ pub async fn scan<'a>(
     match sender.send(true) {
         Err(error) => {
             return Err(anyhow::anyhow!(
-                "could not send snapshot updates ownership message to present indexer - {}",
+                "could not send checkpoint updates ownership message to present indexer - {:#}",
                 error
             ))
         }
@@ -134,7 +138,7 @@ pub async fn scan<'a>(
     };
 
     tracing::info!(
-        "finished scanning past blocks, snapshot updates ownership transferred to present indexer"
+        "finished scanning past blocks, checkpoint updates ownership transferred to present indexer"
     );
 
     Ok(())

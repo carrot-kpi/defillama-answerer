@@ -3,7 +3,7 @@ db_connection_string: "postgresql://user:password@127.0.0.1:5432/defillama-answe
 web3_storage_api_key: "key"
 api:
   host: "127.0.0.1"
-  port: 8080
+  port: 9080
 chain_configs:
   # gnosis
   100:
@@ -19,7 +19,7 @@ chain_configs:
     ws_rpc_endpoint: "http://127.0.0.1:2222/"
     answerer_private_key: "key"
     logs_blocks_range: 2000
-    template_id: 3
+    template_id: 2
     factory:
       address: "0x44bBb970E534bCE4B42C5a34b15d5B049704417A"
       deployment_block: 3784913
