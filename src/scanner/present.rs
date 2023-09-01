@@ -265,7 +265,7 @@ async fn answer_active_oracle(
             Ok(db_connection) => db_connection,
             Err(error) => {
                 tracing::error!(
-                    "could not get database connection while trying to delete oracle from database - {}",
+                    "could not get database connection while trying to update oracle's answer tx hash\n\n{:#}",
                     error
                 );
                 return Ok(());
