@@ -104,7 +104,7 @@ async fn message_receiver(
             }
         }
         Err(error) => {
-            tracing::error!("error while receiving control over snapshot block number update from past indexer - {:#}", error);
+            tracing::error!("error while receiving control over snapshot block number update from past indexer\n\n{:#}", error);
         }
     }
 }
