@@ -6,7 +6,7 @@ use diesel::{
     r2d2::{ConnectionManager, Pool},
 };
 use ethers::{
-    abi::RawLog,
+    abi::{AbiEncode, RawLog},
     contract::{EthLogDecode, Multicall},
     types::{Address, Log},
 };
@@ -91,7 +91,7 @@ pub async fn parse_kpi_token_creation_log(
                 if finalized {
                     tracing::info!(
                         "oracle with address {} already finalized, skipping",
-                        oracle_address
+                        oracle_address.encode_hex()
                     );
                     continue;
                 }
@@ -99,7 +99,7 @@ pub async fn parse_kpi_token_creation_log(
                 if template.id.as_u64() != oracle_template_id {
                     tracing::info!(
                         "oracle with address {} doesn't have the right template id, skipping",
-                        oracle_address
+                        oracle_address.encode_hex()
                     );
                     continue;
                 }
@@ -143,6 +143,7 @@ pub async fn acknowledge_active_oracles(
 ) {
     let mut join_set = JoinSet::new();
     for data in oracles_data.into_iter() {
+        let oracle_address = data.address.encode_hex();
         join_set.spawn(
             acknowledge_active_oracle(
                 chain_id,
@@ -153,16 +154,24 @@ pub async fn acknowledge_active_oracles(
                 defillama_client.clone(),
                 web3_storage_http_client.clone(),
             )
-            .instrument(tracing::error_span!("ack", chain_id)),
+            .instrument(tracing::error_span!("ack", chain_id, oracle_address)),
         );
     }
-    while let Some(res) = join_set.join_next().await {
-        match res {
-            Err(error) => {
-                tracing::error!("error while handling oracle creation - {:#}", error)
+
+    while let Some(join_result) = join_set.join_next().await {
+        match join_result {
+            Ok(result) => {
+                if let Err(error) = result {
+                    tracing::error!("an active oracle acknowledgement task unexpectedly stopped with an error:\n\n{:#}", error);
+                }
             }
-            _ => {}
-        };
+            Err(error) => {
+                tracing::error!(
+                    "an unexpected error happened while joining a task:\n\n{:#}",
+                    error
+                );
+            }
+        }
     }
 }
 

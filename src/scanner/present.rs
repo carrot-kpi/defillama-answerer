@@ -6,6 +6,7 @@ use diesel::{
     PgConnection,
 };
 use ethers::{
+    abi::AbiEncode,
     contract::EthEvent,
     providers::{Middleware, StreamExt},
     types::{Block, Filter, H256},
@@ -15,7 +16,7 @@ use tokio::{
     sync::{oneshot, Mutex},
     task::JoinSet,
 };
-use tracing::error_span;
+use tracing::info_span;
 use tracing_futures::Instrument;
 
 use crate::{
@@ -34,10 +35,10 @@ pub async fn scan(
 ) -> anyhow::Result<()> {
     let update_snapshot_block_number = Arc::new(Mutex::new(false));
 
-    tokio::spawn(message_receiver(
-        receiver,
-        update_snapshot_block_number.clone(),
-    ));
+    tokio::spawn(
+        message_receiver(receiver, update_snapshot_block_number.clone())
+            .instrument(info_span!("message-receiver")),
+    );
 
     loop {
         let signer = get_signer(
@@ -191,6 +192,7 @@ async fn handle_active_oracles_answering(
     let mut join_set: JoinSet<Result<(), anyhow::Error>> = JoinSet::new();
     for active_oracle in active_oracles.into_iter() {
         let chain_id = context.chain_id;
+        let oracle_address = active_oracle.address.encode_hex();
         join_set.spawn(
             answer_active_oracle(
                 signer.clone(),
@@ -198,13 +200,21 @@ async fn handle_active_oracles_answering(
                 context.defillama_client.clone(),
                 active_oracle,
             )
-            .instrument(error_span!("answer", chain_id)),
+            .instrument(info_span!("answer", chain_id, oracle_address)),
         );
     }
 
-    // wait forever unless some task stops with an error
-    while let Some(res) = join_set.join_next().await {
-        let _ = res.context("task unexpectedly stopped")?;
+    while let Some(join_result) = join_set.join_next().await {
+        match join_result {
+            Ok(result) => {
+                if let Err(error) = result {
+                    tracing::error!("a task unexpectedly stopped with an error:\n\n{:#}", error);
+                }
+            }
+            Err(error) => {
+                tracing::error!("an error happened while joining a task:\n\n{:#}", error);
+            }
+        }
     }
 
     Ok(())
@@ -214,16 +224,24 @@ async fn answer_active_oracle(
     signer: Arc<Signer>,
     db_connection_pool: Pool<ConnectionManager<PgConnection>>,
     defillama_client: Arc<DefiLlamaClient>,
-    active_oracle: models::ActiveOracle,
+    mut active_oracle: models::ActiveOracle,
 ) -> anyhow::Result<()> {
+    if let Some(tx_hash) = active_oracle.answer_tx_hash {
+        tracing::info!(
+            "answering procedure already active for oracle with tx hash {}, skipping",
+            tx_hash.0.encode_hex()
+        );
+        return Ok(());
+    }
+
     if let Some(answer) =
         specification::answer(&active_oracle.specification, defillama_client).await
     {
-        // if we come here, an answer is available and we should submit it
+        // if we arrive here, an answer is available and we should submit it
 
         tracing::info!(
-            "answering active oracle 0x{:X} with value {}",
-            active_oracle.address.deref(),
+            "answering active oracle {} with value {}",
+            active_oracle.address.encode_hex(),
             answer
         );
         let oracle = DefiLlamaOracle::new(active_oracle.address.0, signer);
@@ -240,7 +258,25 @@ async fn answer_active_oracle(
             }
         };
 
-        let receipt: Option<ethers::types::TransactionReceipt> = match tx.await {
+        let mut db_connection = match db_connection_pool
+            .get()
+            .context("could not get new connection from pool")
+        {
+            Ok(db_connection) => db_connection,
+            Err(error) => {
+                tracing::error!(
+                    "could not get database connection while trying to delete oracle from database - {}",
+                    error
+                );
+                return Ok(());
+            }
+        };
+        if let Err(error) = active_oracle.update_answer_tx_hash(&mut db_connection, tx.tx_hash()) {
+            tracing::error!("{:#}", error);
+            return Ok(());
+        }
+
+        let receipt = match tx.await {
             Ok(receipt) => receipt,
             Err(error) => {
                 tracing::error!(
@@ -248,6 +284,13 @@ async fn answer_active_oracle(
                     active_oracle.address.deref(),
                     error,
                 );
+
+                // we need to throw this error as this needs to be addressed immediately.
+                // not being able to delete the tx hash for an oracle once an answer task
+                // errors out might cause a deadlock preventing any answering task from
+                // starting in the future
+                active_oracle.delete_answer_tx_hash(&mut db_connection)?;
+
                 return Ok(());
             }
         };
@@ -278,28 +321,15 @@ async fn answer_active_oracle(
             );
         }
 
-        let mut db_connection = match db_connection_pool
-            .get()
-            .context("could not get new connection from pool")
-        {
-            Ok(db_connection) => db_connection,
-            Err(error) => {
-                tracing::error!(
-                    "could not get database connection while trying to delete oracle from database - {}",
-                    error
-                );
-                return Ok(());
-            }
-        };
-
+        let active_oracle_address = active_oracle.address.0.clone();
         if let Err(error) = active_oracle.delete(&mut db_connection) {
             tracing::error!("could not delete oracle from database - {}", error);
             return Ok(());
         }
 
         tracing::info!(
-            "oracle 0x{:X} successfully finalized with value {}",
-            active_oracle.address.deref(),
+            "oracle {} successfully finalized with value {}",
+            active_oracle_address.encode_hex(),
             answer
         );
     }

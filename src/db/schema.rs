@@ -2,10 +2,10 @@
 
 diesel::table! {
     active_oracles (address) {
-        #[max_length = 42]
-        address -> Bpchar,
+        address -> Bytea,
         chain_id -> Int4,
         specification -> Jsonb,
+        answer_tx_hash -> Nullable<Bytea>,
     }
 }
 

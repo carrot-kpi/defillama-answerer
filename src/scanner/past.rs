@@ -101,15 +101,18 @@ pub async fn scan<'a>(
         )
         .await;
 
-        tracing::info!(
-            "{} -> {} - {} oracle creations detected - scanned {}% of past blocks",
-            from_block,
-            to_block,
-            oracles_data.len(),
-            ((to_block as f32 - context.factory_config.deployment_block as f32)
-                / full_range as f32)
-                * 100f32
-        );
+        let oracles_data_len = oracles_data.len();
+        if oracles_data_len > 0 {
+            tracing::info!(
+                "{} -> {} - {} oracle creations detected - scanned {}% of past blocks",
+                from_block,
+                to_block,
+                oracles_data_len,
+                ((to_block as f32 - context.factory_config.deployment_block as f32)
+                    / full_range as f32)
+                    * 100f32
+            );
+        }
 
         acknowledge_active_oracles(
             context.chain_id,

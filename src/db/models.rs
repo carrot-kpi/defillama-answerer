@@ -1,21 +1,26 @@
 use anyhow::Context;
 use diesel::prelude::*;
-use ethers::types::Address;
+use ethers::types::{Address, H256};
 
 use crate::specification::Specification;
 
 use super::{
-    schema::{active_oracles, checkpoints},
-    DbAddress,
+    schema::{
+        active_oracles::{self},
+        checkpoints,
+    },
+    DbAddress, DbTxHash,
 };
 
 #[derive(Queryable, Selectable, Insertable, Debug, PartialEq)]
+#[diesel(treat_none_as_null = true)]
 #[diesel(table_name = active_oracles)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct ActiveOracle {
     pub address: DbAddress,
     pub chain_id: i32,
     pub specification: Specification,
+    pub answer_tx_hash: Option<DbTxHash>,
 }
 
 impl ActiveOracle {
@@ -29,6 +34,7 @@ impl ActiveOracle {
             address: DbAddress(address),
             chain_id: i32::try_from(chain_id).unwrap(), // this should never panic
             specification,
+            answer_tx_hash: None,
         };
 
         diesel::insert_into(active_oracles::table)
@@ -39,14 +45,44 @@ impl ActiveOracle {
         Ok(())
     }
 
-    pub fn delete(&self, connection: &mut PgConnection) -> anyhow::Result<()> {
+    pub fn update_answer_tx_hash(
+        &mut self,
+        connection: &mut PgConnection,
+        answer_tx_hash: H256,
+    ) -> anyhow::Result<()> {
+        diesel::update(active_oracles::dsl::active_oracles)
+            .set(active_oracles::dsl::answer_tx_hash.eq(DbTxHash(answer_tx_hash)))
+            .execute(connection)
+            .context(format!(
+                "could not update active oracle {} answer tx hash",
+                self.address.0
+            ))?;
+        self.answer_tx_hash = Some(DbTxHash(answer_tx_hash));
+        Ok(())
+    }
+
+    pub fn delete_answer_tx_hash(&mut self, connection: &mut PgConnection) -> anyhow::Result<()> {
+        diesel::update(active_oracles::dsl::active_oracles)
+            .set(active_oracles::dsl::answer_tx_hash.eq(None::<DbTxHash>))
+            .execute(connection)
+            .context(format!(
+                "could not delete active oracle {} answer tx hash",
+                self.address.0
+            ))?;
+        self.answer_tx_hash = None;
+        Ok(())
+    }
+
+    // by getting ownership of self instead of a reference to it, we know that the active
+    // oracle model instance will be dropped at the end of the function after having been
+    // deleted from the db
+    pub fn delete(self, connection: &mut PgConnection) -> anyhow::Result<()> {
         diesel::delete(active_oracles::dsl::active_oracles.find(&self.address))
             .execute(connection)
             .context(format!(
                 "could not delete oracle {} from database",
                 self.address.0
             ))?;
-
         Ok(())
     }
 

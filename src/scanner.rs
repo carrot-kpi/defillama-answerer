@@ -4,8 +4,8 @@ mod present;
 
 use std::sync::Arc;
 
-use anyhow::Context;
 use tokio::{sync::oneshot, task::JoinSet};
+use tracing::info_span;
 use tracing_futures::Instrument;
 
 use crate::commons::ChainExecutionContext;
@@ -25,10 +25,10 @@ pub async fn scan(context: Arc<ChainExecutionContext>) -> anyhow::Result<()> {
     let (tx, rx) = oneshot::channel();
 
     let present_indexing_future =
-        present::scan(rx, context.clone()).instrument(tracing::info_span!("present", chain_id));
+        present::scan(rx, context.clone()).instrument(info_span!("present-indexer", chain_id));
 
     let past_indexing_future =
-        past::scan(tx, context.clone()).instrument(tracing::info_span!("past", chain_id));
+        past::scan(tx, context.clone()).instrument(info_span!("past-indexer", chain_id));
 
     let mut join_set = JoinSet::new();
     join_set.spawn(past_indexing_future);
@@ -36,8 +36,16 @@ pub async fn scan(context: Arc<ChainExecutionContext>) -> anyhow::Result<()> {
 
     // wait forever unless some task stops with an error
     while let Some(join_result) = join_set.join_next().await {
-        let task_result = join_result.context("error while joining tasks")?;
-        task_result.context("task unexpectedly stopped")?;
+        match join_result {
+            Ok(result) => {
+                if let Err(error) = result {
+                    return Err(error);
+                }
+            }
+            Err(err) => {
+                return Err(anyhow::anyhow!(err));
+            }
+        }
     }
 
     Ok(())
