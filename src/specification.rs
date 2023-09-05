@@ -35,7 +35,7 @@ pub trait Answer<'a, P: Serialize + Deserialize<'a> + Debug + PartialEq> {
 
 macro_rules! impl_spec_validation_and_handling {
     ($($spec_variant: ident => $handler: ident),*) => {
-    pub async fn validate<'a>(specification: &Specification, defillama_client: Arc<DefiLlamaClient>) -> bool {
+        pub async fn validate<'a>(specification: &Specification, defillama_client: Arc<DefiLlamaClient>) -> bool {
             let result = match specification {
                 $(Specification::$spec_variant(payload) => $handler::validate(&payload, defillama_client),)*
             }.await;
@@ -79,12 +79,11 @@ mod test {
     fn serialize_tvl() {
         let metric = Specification::Tvl(TvlPayload {
             protocol: "aave".to_owned(),
-            timestamp: 10,
         });
 
         assert_eq!(
             serde_json::to_string(&metric).unwrap(),
-            r#"{"metric":"tvl","payload":{"protocol":"aave","timestamp":10}}"#
+            r#"{"metric":"tvl","payload":{"protocol":"aave"}}"#
         );
     }
 
@@ -136,12 +135,11 @@ mod test {
         // valid json, valid metric, valid payload
         assert_eq!(
             serde_json::from_str::<Specification>(
-                r#"{"metric":"tvl","payload":{"protocol":"foo","timestamp":10}}"#,
+                r#"{"metric":"tvl","payload":{"protocol":"foo"}}"#,
             )
             .unwrap(),
             Specification::Tvl(TvlPayload {
                 protocol: "foo".to_owned(),
-                timestamp: 10
             })
         );
     }

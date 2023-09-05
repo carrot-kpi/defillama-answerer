@@ -1,5 +1,3 @@
-use std::{env, sync::Arc};
-
 pub mod api;
 pub mod commons;
 pub mod contracts;
@@ -12,32 +10,69 @@ pub mod signer;
 pub mod specification;
 pub mod telemetry;
 
+use std::{env, process::exit, sync::Arc};
+
 use anyhow::Context;
 use diesel::{
     pg::PgConnection,
     r2d2::{ConnectionManager, Pool},
 };
 use tokio::task::JoinSet;
+use tracing::{info_span, Instrument};
 
 use crate::{commons::ChainExecutionContext, defillama::DefiLlamaClient, http_client::HttpClient};
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations");
 
-pub async fn main() -> anyhow::Result<()> {
-    telemetry::init()?;
+pub async fn main() {
+    if let Err(error) = telemetry::init().context("could not initialize logging system") {
+        tracing::error!("{:#}", error);
+        exit(1);
+    }
 
     let alt_config_path = env::var("CONFIG_PATH").ok();
-    let config = commons::get_config(alt_config_path)?;
+    let config = match commons::get_config(alt_config_path).context("could not read config") {
+        Ok(config) => config,
+        Err(error) => {
+            tracing::error!("{:#}", error);
+            exit(1);
+        }
+    };
 
     let db_connection_manager =
         ConnectionManager::<PgConnection>::new(&config.db_connection_string);
-    let db_connection_pool = Pool::builder().build(db_connection_manager)?;
-    let mut db_connection = db_connection_pool.get()?;
+    let db_connection_pool = match Pool::builder()
+        .build(db_connection_manager)
+        .context("could not build connection pool to the database")
+    {
+        Ok(db_connection_pool) => db_connection_pool,
+        Err(error) => {
+            tracing::error!("{:#}", error);
+            exit(1);
+        }
+    };
+    let mut db_connection = match db_connection_pool
+        .get()
+        .context("could not get connection to database to run migrations")
+    {
+        Ok(db_connection) => db_connection,
+        Err(error) => {
+            tracing::error!("{:#}", error);
+            exit(1);
+        }
+    };
     db_connection.run_pending_migrations(MIGRATIONS).unwrap();
 
-    let ipfs_api_endpoint = reqwest::Url::parse(config.ipfs_api_endpoint.as_str())
-        .context(format!("could not parse url {}", config.ipfs_api_endpoint))?;
+    let ipfs_api_endpoint = match reqwest::Url::parse(config.ipfs_api_endpoint.as_str())
+        .context(format!("could not parse url {}", config.ipfs_api_endpoint))
+    {
+        Ok(ipfs_api_endpoint) => ipfs_api_endpoint,
+        Err(error) => {
+            tracing::error!("{:#}", error);
+            exit(1);
+        }
+    };
     tracing::info!("ipfs api endpoint: {}", config.ipfs_api_endpoint);
     let ipfs_http_client = Arc::new(HttpClient::new(ipfs_api_endpoint.to_owned()));
 
@@ -79,16 +114,24 @@ pub async fn main() -> anyhow::Result<()> {
         join_set.spawn(scanner::scan(execution_context));
     }
 
-    join_set.spawn(api::serve(
-        config.api.host,
-        config.api.port,
-        defillama_client.clone(),
-    ));
+    join_set.spawn(
+        api::serve(config.api.host, config.api.port, defillama_client.clone())
+            .instrument(info_span!("api-server")),
+    );
 
     // wait forever unless some task stops with an error
-    while let Some(res) = join_set.join_next().await {
-        let _ = res.context("task unexpectedly stopped")?;
+    while let Some(join_result) = join_set.join_next().await {
+        match join_result {
+            Ok(result) => {
+                if let Err(error) = result {
+                    tracing::error!("a task unexpectedly stopped with an error::\n\n{:#}", error);
+                    exit(1);
+                }
+            }
+            Err(error) => {
+                tracing::error!("an error happened while joining a task:\n\n{:#}", error);
+                exit(1);
+            }
+        }
     }
-
-    Ok(())
 }

@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::{
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::Context;
 use diesel::{
@@ -29,6 +32,7 @@ use crate::{
 
 pub struct DefiLlamaOracleData {
     address: Address,
+    measurement_timestamp: SystemTime,
     specification_cid: String,
 }
 
@@ -90,7 +94,7 @@ pub async fn parse_kpi_token_creation_log(
             Ok((finalized, template)) => {
                 if finalized {
                     tracing::info!(
-                        "oracle with address {} already finalized, skipping",
+                        "oracle with address 0x{:x} already finalized, skipping",
                         oracle_address
                     );
                     continue;
@@ -98,7 +102,7 @@ pub async fn parse_kpi_token_creation_log(
 
                 if template.id.as_u64() != oracle_template_id {
                     tracing::info!(
-                        "oracle with address {} doesn't have the right template id, skipping",
+                        "oracle with address 0x{:x} doesn't have the right template id, skipping",
                         oracle_address
                     );
                     continue;
@@ -116,8 +120,23 @@ pub async fn parse_kpi_token_creation_log(
                     }
                 };
 
+                let measurement_timestamp = match oracle.measurement_timestamp().await {
+                    Ok(measurement_timestamp) => measurement_timestamp,
+                    Err(error) => {
+                        tracing::error!(
+                            "could not fetch measurement timestamp for oracle at address {}, skipping - {:#}",
+                            oracle_address,
+                            error
+                        );
+                        continue;
+                    }
+                };
+                let measurement_timestamp =
+                    UNIX_EPOCH + Duration::from_secs(measurement_timestamp.as_u64());
+
                 data.push(DefiLlamaOracleData {
                     address: oracle_address,
+                    measurement_timestamp,
                     specification_cid: specification,
                 });
             }
@@ -143,42 +162,54 @@ pub async fn acknowledge_active_oracles(
 ) {
     let mut join_set = JoinSet::new();
     for data in oracles_data.into_iter() {
+        let oracle_address = format!("0x{}", data.address.to_string());
         join_set.spawn(
             acknowledge_active_oracle(
                 chain_id,
-                data.address,
-                data.specification_cid,
+                data,
                 db_connection_pool.clone(),
                 ipfs_http_client.clone(),
                 defillama_client.clone(),
                 web3_storage_http_client.clone(),
             )
-            .instrument(tracing::error_span!("ack", chain_id)),
+            .instrument(tracing::error_span!("ack", chain_id, oracle_address)),
         );
     }
-    while let Some(res) = join_set.join_next().await {
-        match res {
-            Err(error) => {
-                tracing::error!("error while handling oracle creation - {:#}", error)
+
+    while let Some(join_result) = join_set.join_next().await {
+        match join_result {
+            Ok(result) => {
+                if let Err(error) = result {
+                    tracing::error!("an active oracle acknowledgement task unexpectedly stopped with an error:\n\n{:#}", error);
+                }
             }
-            _ => {}
-        };
+            Err(error) => {
+                tracing::error!(
+                    "an unexpected error happened while joining a task:\n\n{:#}",
+                    error
+                );
+            }
+        }
     }
 }
 
 pub async fn acknowledge_active_oracle(
     chain_id: u64,
-    oracle_address: Address,
-    specification_cid: String,
+    oracle_data: DefiLlamaOracleData,
     db_connection_pool: Pool<ConnectionManager<PgConnection>>,
     ipfs_http_client: Arc<HttpClient>,
     defillama_client: Arc<DefiLlamaClient>,
     web3_storage_http_client: Option<Arc<HttpClient>>,
 ) -> anyhow::Result<()> {
-    match ipfs::fetch_specification_with_retry(ipfs_http_client.clone(), &specification_cid).await {
+    match ipfs::fetch_specification_with_retry(
+        ipfs_http_client.clone(),
+        &oracle_data.specification_cid,
+    )
+    .await
+    {
         Ok(specification) => {
             if !specification::validate(&specification, defillama_client).await {
-                tracing::error!("specification validation failed for oracle at address {}, this won't be handled", oracle_address);
+                tracing::error!("specification validation failed for oracle at address {:x}, this won't be handled", oracle_data.address);
                 return Ok(());
             }
 
@@ -188,8 +219,9 @@ pub async fn acknowledge_active_oracle(
 
             models::ActiveOracle::create(
                 database_connection,
-                oracle_address,
+                oracle_data.address,
                 chain_id,
+                oracle_data.measurement_timestamp,
                 specification,
             )
             .context("could not insert new active oracle into database")?;
@@ -198,10 +230,15 @@ pub async fn acknowledge_active_oracle(
                 ipfs::pin_cid_web3_storage_with_retry(
                     ipfs_http_client,
                     web3_storage_http_client,
-                    &specification_cid,
+                    &oracle_data.specification_cid,
                 )
                 .await?;
             }
+
+            tracing::info!(
+                "oracle with address 0x{:x} saved to database",
+                oracle_data.address
+            );
 
             Ok(())
         }

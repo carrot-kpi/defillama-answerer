@@ -56,9 +56,10 @@ pub async fn scan<'a>(
     let chunk_size = context.logs_blocks_range.unwrap_or(DEFAULT_LOGS_CHUNK_SIZE);
 
     tracing::info!(
-        "scanning {} past blocks, analyzing {} blocks at a time",
+        "scanning {} past blocks {} blocks at a time, starting from {}",
         block_number - from_block,
-        chunk_size
+        chunk_size,
+        block_number
     );
 
     // limit requests to infura to fetch past logs to a maximum of 2 per second
@@ -101,15 +102,18 @@ pub async fn scan<'a>(
         )
         .await;
 
-        tracing::info!(
-            "{} -> {} - {} oracle creations detected - scanned {}% of past blocks",
-            from_block,
-            to_block,
-            oracles_data.len(),
-            ((to_block as f32 - context.factory_config.deployment_block as f32)
-                / full_range as f32)
-                * 100f32
-        );
+        let oracles_data_len = oracles_data.len();
+        if oracles_data_len > 0 {
+            tracing::info!(
+                "{} -> {} - {} oracle creations detected - scanned {}% of past blocks",
+                from_block,
+                to_block,
+                oracles_data_len,
+                ((to_block as f32 - context.factory_config.deployment_block as f32)
+                    / full_range as f32)
+                    * 100f32
+            );
+        }
 
         acknowledge_active_oracles(
             context.chain_id,

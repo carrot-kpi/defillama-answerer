@@ -3,21 +3,20 @@ pub mod schema;
 
 use std::ops::Deref;
 
-use anyhow::Context;
 use diesel::{
     deserialize::{self, FromSql},
     pg::{Pg, PgValue},
     serialize::{self, ToSql},
-    sql_types::{Jsonb, Text},
+    sql_types::{Bytea, Jsonb},
     AsExpression, FromSqlRow,
 };
-use ethers::{types::Address, utils};
+use ethers::types::{Address, H256};
 
 use crate::specification::Specification;
 
 #[derive(FromSqlRow, AsExpression, Debug, PartialEq)]
-#[diesel(sql_type = Text)]
-pub struct DbAddress(Address);
+#[diesel(sql_type = Bytea)]
+pub struct DbAddress(pub Address);
 
 impl Deref for DbAddress {
     type Target = Address;
@@ -27,22 +26,43 @@ impl Deref for DbAddress {
     }
 }
 
-impl FromSql<Text, Pg> for DbAddress {
+impl FromSql<Bytea, Pg> for DbAddress {
     fn from_sql(bytes: PgValue) -> deserialize::Result<Self> {
-        let str = String::from_utf8_lossy(bytes.as_bytes());
-        Ok(DbAddress(
-            utils::parse_checksummed(str.as_ref(), None).context(format!(
-                "could not parse checksummed address {} from database",
-                str.as_ref()
-            ))?,
-        ))
+        let value = <Vec<u8> as FromSql<Bytea, Pg>>::from_sql(bytes)?;
+        Ok(DbAddress(Address::from_slice(value.as_slice())))
     }
 }
 
-impl ToSql<Text, Pg> for DbAddress {
+impl ToSql<Bytea, Pg> for DbAddress {
     fn to_sql<'b>(&'b self, out: &mut serialize::Output<'b, '_, Pg>) -> serialize::Result {
-        let value = utils::to_checksum(&self.0, None);
-        <String as ToSql<Text, Pg>>::to_sql(&value, &mut out.reborrow())
+        let value = self.0.as_bytes();
+        <&[u8] as ToSql<Bytea, Pg>>::to_sql(&value, &mut out.reborrow())
+    }
+}
+
+#[derive(FromSqlRow, AsExpression, Debug, PartialEq)]
+#[diesel(sql_type = Bytea)]
+pub struct DbTxHash(pub H256);
+
+impl Deref for DbTxHash {
+    type Target = H256;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl FromSql<Bytea, Pg> for DbTxHash {
+    fn from_sql(bytes: PgValue) -> deserialize::Result<Self> {
+        let value = <Vec<u8> as FromSql<Bytea, Pg>>::from_sql(bytes)?;
+        Ok(DbTxHash(H256::from_slice(value.as_slice())))
+    }
+}
+
+impl ToSql<Bytea, Pg> for DbTxHash {
+    fn to_sql<'b>(&'b self, out: &mut serialize::Output<'b, '_, Pg>) -> serialize::Result {
+        let value = self.0.as_bytes();
+        <&[u8] as ToSql<Bytea, Pg>>::to_sql(&value, &mut out.reborrow())
     }
 }
 

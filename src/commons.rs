@@ -1,10 +1,4 @@
-use std::{
-    collections::HashMap,
-    net::Ipv4Addr,
-    path::Path,
-    sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::{collections::HashMap, net::Ipv4Addr, path::Path, sync::Arc};
 
 use anyhow::Context;
 use diesel::{
@@ -14,7 +8,7 @@ use diesel::{
 use ethers::types::Address;
 use serde::{Deserialize, Serialize};
 
-use crate::{http_client::HttpClient, defillama::DefiLlamaClient};
+use crate::{defillama::DefiLlamaClient, http_client::HttpClient};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ContractConfig {
@@ -82,11 +76,4 @@ pub fn get_config(alt_path: Option<String>) -> anyhow::Result<Config> {
 
     tracing::info!("using path {} to read config", path);
     confy::load_path::<Config>(path).context("could not read config")
-}
-
-pub fn get_unix_timestamp() -> anyhow::Result<u64> {
-    Ok(SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .context("could not get unix timestamp")?
-        .as_secs())
 }
