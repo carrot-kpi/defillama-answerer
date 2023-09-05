@@ -95,7 +95,7 @@ case. In particular:
   a new block to come. Luckily, most local nodes (such as Ganache and Anvil)
   support the `evm_mine` RPC method, so in order to trigger a new block on a
   local node running on a certain port `PORT` you can simply execute
-  `curl -X POST --data '{ "method": "evm_mine", "params": [] }' http:localhost:<PORT>`
+  `curl -X POST --data '{ "method": "evm_mine", "params": [] }' http://localhost:<PORT>`
   in your terminal.
 
 ## Building a release binary
