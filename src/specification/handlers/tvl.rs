@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::{
-    commons::get_unix_timestamp,
     defillama::DefiLlamaClient,
     specification::{Answer, Validate},
 };
@@ -16,7 +15,6 @@ use crate::{
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, ToSchema)]
 pub struct TvlPayload {
     pub protocol: String,
-    pub timestamp: u64,
 }
 
 pub struct TvlHandler;
@@ -27,11 +25,6 @@ impl<'a> Validate<'a, TvlPayload> for TvlHandler {
         payload: &TvlPayload,
         defillama_client: Arc<DefiLlamaClient>,
     ) -> anyhow::Result<bool> {
-        let current_timestamp = get_unix_timestamp()?;
-        if payload.timestamp <= current_timestamp {
-            return Ok(false);
-        }
-
         match defillama_client.get_current_tvl(&payload.protocol).await {
             Ok(_) => Ok(true),
             Err(error) => {
@@ -52,11 +45,6 @@ impl<'a> Answer<'a, TvlPayload> for TvlHandler {
         payload: &TvlPayload,
         defillama_client: Arc<DefiLlamaClient>,
     ) -> anyhow::Result<Option<U256>> {
-        let current_timestamp = get_unix_timestamp()?;
-        if payload.timestamp > current_timestamp {
-            return Ok(None);
-        }
-
         let raw_tvl = defillama_client.get_current_tvl(&payload.protocol).await?;
         let scaled_tvl = raw_tvl
             .checked_mul(Decimal::new(1e18 as i64, 0))
@@ -91,28 +79,10 @@ mod test {
     use super::TvlPayload;
 
     #[tokio::test]
-    async fn answer_active_oracle_not_ready() {
-        let payload = TvlPayload {
-            protocol: "foo".to_owned(),
-            timestamp: u64::MAX,
-        };
-
-        let defillama_client = Arc::new(DefiLlamaClient::new(
-            reqwest::Url::parse("http://foo.bar").unwrap(), // guaranteed to be a valid url
-        ));
-
-        assert!(TvlHandler::answer(&payload, defillama_client)
-            .await
-            .unwrap()
-            .is_none())
-    }
-
-    #[tokio::test]
     async fn answer_active_oracle_get_current_tvl_fail() {
         let protocol = "foo".to_owned();
         let payload = TvlPayload {
             protocol: protocol.clone(),
-            timestamp: 0,
         };
 
         let defillama_mock_server = MockServer::start().await;
@@ -135,7 +105,6 @@ mod test {
         let protocol = "foo".to_owned();
         let payload = TvlPayload {
             protocol: protocol.clone(),
-            timestamp: 0,
         };
 
         let defillama_mock_server = MockServer::start().await;

@@ -6,7 +6,6 @@ use diesel::{
     PgConnection,
 };
 use ethers::{
-    abi::AbiEncode,
     contract::EthEvent,
     providers::{Middleware, StreamExt},
     types::{Block, Filter, H256},
@@ -171,18 +170,20 @@ async fn handle_active_oracles_answering(
         }
     };
 
-    let active_oracles =
-        match models::ActiveOracle::get_all_for_chain_id(&mut db_connection, context.chain_id) {
-            Ok(oracles) => oracles,
-            Err(error) => {
-                tracing::error!(
-                    "could not get currently active oracles in chain with id {} - {:#}",
-                    context.chain_id,
-                    error
-                );
-                return Ok(());
-            }
-        };
+    let active_oracles = match models::ActiveOracle::get_all_answerable_for_chain_id(
+        &mut db_connection,
+        context.chain_id,
+    ) {
+        Ok(oracles) => oracles,
+        Err(error) => {
+            tracing::error!(
+                "could not get currently active oracles in chain with id {} - {:#}",
+                context.chain_id,
+                error
+            );
+            return Ok(());
+        }
+    };
 
     let active_oracles_len = active_oracles.len();
     if active_oracles_len > 0 {
@@ -192,7 +193,7 @@ async fn handle_active_oracles_answering(
     let mut join_set: JoinSet<Result<(), anyhow::Error>> = JoinSet::new();
     for active_oracle in active_oracles.into_iter() {
         let chain_id = context.chain_id;
-        let oracle_address = active_oracle.address.encode_hex();
+        let oracle_address = format!("0x{:x}", active_oracle.address.0);
         join_set.spawn(
             answer_active_oracle(
                 signer.clone(),
@@ -227,9 +228,9 @@ async fn answer_active_oracle(
     mut active_oracle: models::ActiveOracle,
 ) -> anyhow::Result<()> {
     if let Some(tx_hash) = active_oracle.answer_tx_hash {
-        tracing::info!(
-            "answering procedure already active for oracle with tx hash {}, skipping",
-            tx_hash.0.encode_hex()
+        tracing::warn!(
+            "answering procedure already active for oracle with tx hash 0x{:x}, skipping",
+            tx_hash.0
         );
         return Ok(());
     }
@@ -240,8 +241,8 @@ async fn answer_active_oracle(
         // if we arrive here, an answer is available and we should submit it
 
         tracing::info!(
-            "answering active oracle {} with value {}",
-            active_oracle.address.encode_hex(),
+            "answering active oracle 0x{:x} with value {}",
+            active_oracle.address.0,
             answer
         );
         let oracle = DefiLlamaOracle::new(active_oracle.address.0, signer);
@@ -250,7 +251,7 @@ async fn answer_active_oracle(
             Ok(tx) => tx,
             Err(error) => {
                 tracing::error!(
-                    "error while sending answer transaction to oracle {} - {}",
+                    "error while sending answer transaction to oracle 0x{:x} - {}",
                     active_oracle.address.deref(),
                     error,
                 );
@@ -280,7 +281,7 @@ async fn answer_active_oracle(
             Ok(receipt) => receipt,
             Err(error) => {
                 tracing::error!(
-                    "error while confirming answer transaction to oracle {} - {}",
+                    "error while confirming answer transaction to oracle 0x{:x} - {}",
                     active_oracle.address.deref(),
                     error,
                 );
@@ -328,8 +329,8 @@ async fn answer_active_oracle(
         }
 
         tracing::info!(
-            "oracle {} successfully finalized with value {}",
-            active_oracle_address.encode_hex(),
+            "oracle 0x{:x} successfully finalized with value {}",
+            active_oracle_address,
             answer
         );
     }

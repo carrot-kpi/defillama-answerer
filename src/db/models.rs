@@ -1,3 +1,5 @@
+use std::time::SystemTime;
+
 use anyhow::Context;
 use diesel::prelude::*;
 use ethers::types::{Address, H256};
@@ -19,6 +21,7 @@ use super::{
 pub struct ActiveOracle {
     pub address: DbAddress,
     pub chain_id: i32,
+    pub measurement_timestamp: SystemTime,
     pub specification: Specification,
     pub answer_tx_hash: Option<DbTxHash>,
 }
@@ -28,11 +31,13 @@ impl ActiveOracle {
         connection: &mut PgConnection,
         address: Address,
         chain_id: u64,
+        measurement_timestamp: SystemTime,
         specification: Specification,
     ) -> anyhow::Result<()> {
         let oracle = ActiveOracle {
             address: DbAddress(address),
             chain_id: i32::try_from(chain_id).unwrap(), // this should never panic
+            measurement_timestamp,
             specification,
             answer_tx_hash: None,
         };
@@ -77,7 +82,7 @@ impl ActiveOracle {
     // oracle model instance will be dropped at the end of the function after having been
     // deleted from the db
     pub fn delete(self, connection: &mut PgConnection) -> anyhow::Result<()> {
-        diesel::delete(active_oracles::dsl::active_oracles.find(&self.address))
+        diesel::delete(active_oracles::dsl::active_oracles.find((&self.address, &self.chain_id)))
             .execute(connection)
             .context(format!(
                 "could not delete oracle {} from database",
@@ -86,13 +91,17 @@ impl ActiveOracle {
         Ok(())
     }
 
-    pub fn get_all_for_chain_id(
+    pub fn get_all_answerable_for_chain_id(
         connection: &mut PgConnection,
         chain_id: u64,
     ) -> anyhow::Result<Vec<ActiveOracle>> {
         let chain_id = i32::try_from(chain_id).unwrap(); // this should never panic
         Ok(active_oracles::table
-            .filter(active_oracles::dsl::chain_id.eq(chain_id))
+            .filter(
+                active_oracles::dsl::chain_id
+                    .eq(chain_id)
+                    .and(active_oracles::dsl::measurement_timestamp.lt(SystemTime::now())),
+            )
             .select(ActiveOracle::as_select())
             .load(connection)?)
     }

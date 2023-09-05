@@ -1,9 +1,10 @@
 // @generated automatically by Diesel CLI.
 
 diesel::table! {
-    active_oracles (address) {
+    active_oracles (address, chain_id) {
         address -> Bytea,
         chain_id -> Int4,
+        measurement_timestamp -> Timestamp,
         specification -> Jsonb,
         answer_tx_hash -> Nullable<Bytea>,
     }

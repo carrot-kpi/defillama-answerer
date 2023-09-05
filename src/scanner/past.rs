@@ -56,9 +56,10 @@ pub async fn scan<'a>(
     let chunk_size = context.logs_blocks_range.unwrap_or(DEFAULT_LOGS_CHUNK_SIZE);
 
     tracing::info!(
-        "scanning {} past blocks, analyzing {} blocks at a time",
+        "scanning {} past blocks {} blocks at a time, starting from {}",
         block_number - from_block,
-        chunk_size
+        chunk_size,
+        block_number
     );
 
     // limit requests to infura to fetch past logs to a maximum of 2 per second

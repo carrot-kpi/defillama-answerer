@@ -1,5 +1,7 @@
 mod commons;
 
+use std::time::UNIX_EPOCH;
+
 use crate::commons::context::TestContext;
 use anyhow::Context;
 use defillama_answerer::{
@@ -20,9 +22,9 @@ fn test_to_from_sql() {
     let active_oracle = ActiveOracle {
         address: DbAddress(Address::random()),
         chain_id: 100,
+        measurement_timestamp: UNIX_EPOCH,
         specification: Specification::Tvl(TvlPayload {
             protocol: "foo".to_owned(),
-            timestamp: 10,
         }),
         answer_tx_hash: None,
     };
@@ -35,11 +37,12 @@ fn test_to_from_sql() {
         &mut db_connection,
         active_oracle.address.0,
         active_oracle.chain_id as u64,
+        active_oracle.measurement_timestamp,
         active_oracle.specification.clone(),
     )
     .expect("could not save active oracle to database");
 
-    let oracles = models::ActiveOracle::get_all_for_chain_id(
+    let oracles = models::ActiveOracle::get_all_answerable_for_chain_id(
         &mut db_connection,
         active_oracle.chain_id as u64,
     )
@@ -55,9 +58,9 @@ fn test_answer_tx_hash_update() {
     let mut active_oracle = ActiveOracle {
         address: DbAddress(Address::random()),
         chain_id: 100,
+        measurement_timestamp: UNIX_EPOCH,
         specification: Specification::Tvl(TvlPayload {
             protocol: "foo".to_owned(),
-            timestamp: 10,
         }),
         answer_tx_hash: None,
     };
@@ -70,11 +73,12 @@ fn test_answer_tx_hash_update() {
         &mut db_connection,
         active_oracle.address.0,
         active_oracle.chain_id as u64,
+        active_oracle.measurement_timestamp,
         active_oracle.specification.clone(),
     )
     .expect("could not save active oracle to database");
 
-    let oracles = models::ActiveOracle::get_all_for_chain_id(
+    let oracles = models::ActiveOracle::get_all_answerable_for_chain_id(
         &mut db_connection,
         active_oracle.chain_id as u64,
     )
@@ -88,7 +92,7 @@ fn test_answer_tx_hash_update() {
         .context("could not update answer tx hash")
         .unwrap();
 
-    let oracles = models::ActiveOracle::get_all_for_chain_id(
+    let oracles = models::ActiveOracle::get_all_answerable_for_chain_id(
         &mut db_connection,
         active_oracle.chain_id as u64,
     )
@@ -108,9 +112,9 @@ fn test_answer_tx_hash_deletion() {
     let active_oracle = ActiveOracle {
         address: DbAddress(Address::random()),
         chain_id: 100,
+        measurement_timestamp: UNIX_EPOCH,
         specification: Specification::Tvl(TvlPayload {
             protocol: "foo".to_owned(),
-            timestamp: 10,
         }),
         answer_tx_hash: Some(DbTxHash(H256::random())),
     };
@@ -125,7 +129,7 @@ fn test_answer_tx_hash_deletion() {
         .expect("could not save active oracle to database");
 
     // get it back and check that it's the same as the one we actually wanted to save
-    let oracles = models::ActiveOracle::get_all_for_chain_id(
+    let oracles = models::ActiveOracle::get_all_answerable_for_chain_id(
         &mut db_connection,
         active_oracle.chain_id as u64,
     )
@@ -141,7 +145,7 @@ fn test_answer_tx_hash_deletion() {
     assert!(oracle_from_db.answer_tx_hash.is_none());
 
     // get it once again from the database and verify that the tx hash is not there anymore
-    let oracles = models::ActiveOracle::get_all_for_chain_id(
+    let oracles = models::ActiveOracle::get_all_answerable_for_chain_id(
         &mut db_connection,
         active_oracle.chain_id as u64,
     )
