@@ -23,11 +23,10 @@ use crate::{
         kpi_token::KPIToken,
     },
     db::models,
-    defillama::DefiLlamaClient,
     http_client::HttpClient,
     ipfs,
     signer::Signer,
-    specification,
+    specification::{self, Specification},
 };
 
 pub struct DefiLlamaOracleData {
@@ -157,7 +156,7 @@ pub async fn acknowledge_active_oracles(
     oracles_data: Vec<DefiLlamaOracleData>,
     db_connection_pool: Pool<ConnectionManager<PgConnection>>,
     ipfs_http_client: Arc<HttpClient>,
-    defillama_client: Arc<DefiLlamaClient>,
+    defillama_http_client: Arc<HttpClient>,
     web3_storage_http_client: Option<Arc<HttpClient>>,
 ) {
     let mut join_set = JoinSet::new();
@@ -169,7 +168,7 @@ pub async fn acknowledge_active_oracles(
                 data,
                 db_connection_pool.clone(),
                 ipfs_http_client.clone(),
-                defillama_client.clone(),
+                defillama_http_client.clone(),
                 web3_storage_http_client.clone(),
             )
             .instrument(tracing::error_span!("ack", chain_id, oracle_address)),
@@ -198,7 +197,7 @@ pub async fn acknowledge_active_oracle(
     oracle_data: DefiLlamaOracleData,
     db_connection_pool: Pool<ConnectionManager<PgConnection>>,
     ipfs_http_client: Arc<HttpClient>,
-    defillama_client: Arc<DefiLlamaClient>,
+    defillama_http_client: Arc<HttpClient>,
     web3_storage_http_client: Option<Arc<HttpClient>>,
 ) -> anyhow::Result<()> {
     match ipfs::fetch_specification_with_retry(
@@ -208,7 +207,7 @@ pub async fn acknowledge_active_oracle(
     .await
     {
         Ok(specification) => {
-            if !specification::validate(&specification, defillama_client).await {
+            if !specification::validate(&specification, defillama_http_client).await {
                 tracing::error!("specification validation failed for oracle at address {:x}, this won't be handled", oracle_data.address);
                 return Ok(());
             }
@@ -227,7 +226,7 @@ pub async fn acknowledge_active_oracle(
             .context("could not insert new active oracle into database")?;
 
             if let Some(web3_storage_http_client) = web3_storage_http_client {
-                ipfs::pin_cid_web3_storage_with_retry(
+                ipfs::pin_on_web3_storage_with_retry(
                     ipfs_http_client,
                     web3_storage_http_client,
                     &oracle_data.specification_cid,

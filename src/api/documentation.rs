@@ -9,7 +9,7 @@ use warp::{
     redirect, Filter, Rejection, Reply,
 };
 
-use super::{specification, specifications};
+use super::{super::specification, specifications};
 
 #[derive(OpenApi)]
 #[openapi(

@@ -120,7 +120,7 @@ pub async fn scan<'a>(
             oracles_data,
             context.db_connection_pool.clone(),
             context.ipfs_http_client.clone(),
-            context.defillama_client.clone(),
+            context.defillama_http_client.clone(),
             context.web3_storage_http_client.clone(),
         )
         .await;

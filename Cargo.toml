@@ -18,11 +18,7 @@ diesel = { version = "2.1.0", features = ["postgres", "r2d2", "serde_json"] }
 diesel_migrations = { version = "2.1.0", features = ["postgres"] }
 ethers = { version = "2.0.7", features = ["ws", "rustls"] }
 governor = "0.5.1"
-reqwest = { version = "0.11.18", features = [
-    "serde_json",
-    "multipart",
-    "stream",
-] }
+reqwest = { version = "0.11.18", features = ["serde_json", "stream"] }
 rust_decimal = "1.32.0"
 serde = { version = "1.0.152", features = ["derive"] }
 serde_json = "1.0.91"

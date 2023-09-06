@@ -2,7 +2,6 @@ pub mod api;
 pub mod commons;
 pub mod contracts;
 pub mod db;
-pub mod defillama;
 pub mod http_client;
 pub mod ipfs;
 pub mod scanner;
@@ -10,20 +9,24 @@ pub mod signer;
 pub mod specification;
 pub mod telemetry;
 
-use std::{env, process::exit, sync::Arc};
+use std::{env, num::NonZeroU32, process::exit, sync::Arc};
 
 use anyhow::Context;
 use diesel::{
     pg::PgConnection,
     r2d2::{ConnectionManager, Pool},
 };
+use governor::{Quota, RateLimiter};
 use tokio::task::JoinSet;
 use tracing::{info_span, Instrument};
 
-use crate::{commons::ChainExecutionContext, defillama::DefiLlamaClient, http_client::HttpClient};
+use crate::{commons::ChainExecutionContext, http_client::HttpClient};
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations");
+
+const MAX_CALLS_PER_SECOND_DEFILLAMA: u32 = 10;
+const MAX_CALLS_PER_SECOND_WEB3_STORAGE: u32 = 3;
 
 pub async fn main() {
     if let Err(error) = telemetry::init().context("could not initialize logging system") {
@@ -64,29 +67,53 @@ pub async fn main() {
     };
     db_connection.run_pending_migrations(MIGRATIONS).unwrap();
 
-    let ipfs_api_endpoint = match reqwest::Url::parse(config.ipfs_api_endpoint.as_str())
-        .context(format!("could not parse url {}", config.ipfs_api_endpoint))
+    tracing::info!("ipfs api endpoint: {}", config.ipfs_api_endpoint);
+    let ipfs_http_client = match HttpClient::builder()
+        .base_url(config.ipfs_api_endpoint.to_owned())
+        .build()
     {
-        Ok(ipfs_api_endpoint) => ipfs_api_endpoint,
+        Ok(ipfs_http_client) => ipfs_http_client,
         Err(error) => {
             tracing::error!("{:#}", error);
             exit(1);
         }
     };
-    tracing::info!("ipfs api endpoint: {}", config.ipfs_api_endpoint);
-    let ipfs_http_client = Arc::new(HttpClient::new(ipfs_api_endpoint.to_owned()));
+    let ipfs_http_client = Arc::new(ipfs_http_client);
 
     let web3_storage_http_client = config.web3_storage_api_key.map(|token| {
+        let web3_storage_http_client = match HttpClient::builder()
+            .base_url("https://api.web3.storage".to_owned())
+            .bearer_auth_token(token)
+            .rate_limiter(RateLimiter::direct(Quota::per_second(
+                NonZeroU32::new(MAX_CALLS_PER_SECOND_WEB3_STORAGE).unwrap(),
+            )))
+            .build()
+        {
+            Ok(web3_storage_http_client) => web3_storage_http_client,
+            Err(error) => {
+                tracing::error!("{:#}", error);
+                exit(1);
+            }
+        };
+        let web3_storage_http_client = Arc::new(web3_storage_http_client);
         tracing::info!("web3.storage pinning is enabled");
-        Arc::new(HttpClient::new_with_bearer_auth(
-            reqwest::Url::parse("https://api.web3.storage").unwrap(), // guaranteed to be a valid url
-            token,
-        ))
+        web3_storage_http_client
     });
 
-    let defillama_client = Arc::new(DefiLlamaClient::new(
-        reqwest::Url::parse("https://api.llama.fi").unwrap(), // guaranteed to be a valid url
-    ));
+    let defillama_http_client = match HttpClient::builder()
+        .base_url("https://api.llama.fi".to_owned())
+        .rate_limiter(RateLimiter::direct(Quota::per_second(
+            NonZeroU32::new(MAX_CALLS_PER_SECOND_DEFILLAMA).unwrap(),
+        )))
+        .build()
+    {
+        Ok(defillama_http_client) => defillama_http_client,
+        Err(error) => {
+            tracing::error!("{:#}", error);
+            exit(1);
+        }
+    };
+    let defillama_http_client = Arc::new(defillama_http_client);
 
     let mut join_set = JoinSet::new();
     for (chain_id, chain_config) in config.chain_configs.into_iter() {
@@ -105,7 +132,7 @@ pub async fn main() {
             template_id: chain_config.template_id,
             answerer_private_key: Arc::new(chain_config.answerer_private_key),
             ipfs_http_client: ipfs_http_client.clone(),
-            defillama_client: defillama_client.clone(),
+            defillama_http_client: defillama_http_client.clone(),
             web3_storage_http_client: web3_storage_http_client.clone(),
             db_connection_pool: db_connection_pool.clone(),
             factory_config: chain_config.factory,
@@ -115,8 +142,12 @@ pub async fn main() {
     }
 
     join_set.spawn(
-        api::serve(config.api.host, config.api.port, defillama_client.clone())
-            .instrument(info_span!("api-server")),
+        api::serve(
+            config.api.host,
+            config.api.port,
+            defillama_http_client.clone(),
+        )
+        .instrument(info_span!("api-server")),
     );
 
     // wait forever unless some task stops with an error

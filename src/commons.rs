@@ -8,7 +8,7 @@ use diesel::{
 use ethers::types::Address;
 use serde::{Deserialize, Serialize};
 
-use crate::{defillama::DefiLlamaClient, http_client::HttpClient};
+use crate::http_client::HttpClient;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ContractConfig {
@@ -56,7 +56,7 @@ pub struct ChainExecutionContext {
     pub template_id: u64,
     pub answerer_private_key: Arc<String>,
     pub ipfs_http_client: Arc<HttpClient>,
-    pub defillama_client: Arc<DefiLlamaClient>,
+    pub defillama_http_client: Arc<HttpClient>,
     pub web3_storage_http_client: Option<Arc<HttpClient>>,
     pub db_connection_pool: Pool<ConnectionManager<PgConnection>>,
     pub factory_config: ContractConfig,
