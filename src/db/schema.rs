@@ -7,6 +7,7 @@ diesel::table! {
         measurement_timestamp -> Timestamp,
         specification -> Jsonb,
         answer_tx_hash -> Nullable<Bytea>,
+        answer -> Nullable<Bytea>,
     }
 }
 
