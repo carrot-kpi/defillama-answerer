@@ -25,7 +25,7 @@ use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations");
 
-const MAX_CALLS_PER_SECOND_DEFILLAMA: u32 = 10;
+const MAX_CALLS_PER_SECOND_DEFILLAMA: u32 = 7;
 const MAX_CALLS_PER_SECOND_WEB3_STORAGE: u32 = 3;
 
 pub async fn main() {

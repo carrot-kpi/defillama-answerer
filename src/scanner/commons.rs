@@ -26,7 +26,7 @@ use crate::{
     http_client::HttpClient,
     ipfs,
     signer::Signer,
-    specification::{self, Specification},
+    specification,
 };
 
 pub struct DefiLlamaOracleData {
