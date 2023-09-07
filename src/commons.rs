@@ -68,11 +68,7 @@ pub fn get_config(alt_path: Option<String>) -> anyhow::Result<Config> {
         .to_string_lossy()
         .to_string();
     let raw_path = alt_path.unwrap_or(default_path);
-    let path = Path::new(raw_path.as_str())
-        .canonicalize()
-        .context(format!("could not canonicalize config path {raw_path}"))?
-        .to_string_lossy()
-        .to_string();
+    let path = Path::new(raw_path.as_str()).to_string_lossy().to_string();
 
     tracing::info!("using path {} to read config", path);
     confy::load_path::<Config>(path).context("could not read config")
