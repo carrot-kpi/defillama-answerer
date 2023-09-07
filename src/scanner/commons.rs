@@ -161,7 +161,7 @@ pub async fn acknowledge_active_oracles(
 ) {
     let mut join_set = JoinSet::new();
     for data in oracles_data.into_iter() {
-        let oracle_address = format!("0x{}", data.address.to_string());
+        let oracle_address = format!("0x{:x}", data.address);
         join_set.spawn(
             acknowledge_active_oracle(
                 chain_id,
@@ -208,7 +208,7 @@ pub async fn acknowledge_active_oracle(
     {
         Ok(specification) => {
             if !specification::validate(&specification, defillama_http_client).await {
-                tracing::error!("specification validation failed for oracle at address {:x}, this won't be handled", oracle_data.address);
+                tracing::error!("specification validation failed for oracle at address 0x{:x}, this won't be handled", oracle_data.address);
                 return Ok(());
             }
 

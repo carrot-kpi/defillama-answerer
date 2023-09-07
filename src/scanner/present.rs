@@ -310,14 +310,14 @@ async fn answer_active_oracle(
                     }
                 };
                 tracing::info!(
-                    "paid {} to answer oracle {}",
+                    "paid {} to answer oracle 0x{:x}",
                     formatted,
                     active_oracle.address.deref()
                 );
             }
         } else {
             tracing::warn!(
-                "could not determine paid amount to answer oracle {}",
+                "could not determine paid amount to answer oracle 0x{:x}",
                 active_oracle.address.deref()
             );
         }
