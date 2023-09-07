@@ -319,7 +319,6 @@ async fn answer_active_oracle(
             tracing::warn!("could not determine paid amount to answer oracle");
         }
 
-        let active_oracle_address = active_oracle.address.0.clone();
         if let Err(error) = active_oracle.delete(&mut db_connection) {
             tracing::error!("could not delete oracle from database - {}", error);
             return Ok(());
