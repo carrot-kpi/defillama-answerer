@@ -34,7 +34,13 @@ format is the same as the `.config.example.yaml` file at the root of the repo.
 Take that file, copy paste it, and rename it to `.config.yaml`, changing the
 values that you want. By default, the data regarding contract addresses and
 deployment blocks should be correct, so you'd only need to change the other
-data.
+configs.
+
+> [!IMPORTANT]  
+> The program will automatically create the database as specified in the
+> Postgres connection string in the config (key `db_connection_string`), but it
+> will do so only if the specified user and password combination are correct, so
+> double check the Docker Compose configuration to set them right.
 
 A note on the IPFS API and Postgres connection. For convenience the repo
 provides a Docker Compose configuration to quickly spin up a local Kubo (Go IPFS

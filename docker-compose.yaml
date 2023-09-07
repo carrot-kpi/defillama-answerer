@@ -12,4 +12,3 @@ services:
         environment:
             POSTGRES_USER: user
             POSTGRES_PASSWORD: password
-            POSTGRES_DB: defillama-answerer
