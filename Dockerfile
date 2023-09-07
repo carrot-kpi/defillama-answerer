@@ -13,6 +13,7 @@ RUN cargo build --release --offline
 FROM debian:bullseye-slim AS runner
 RUN apt-get -y update
 RUN apt-get -y install curl
+RUN apt-get -y install postgresql
 COPY --from=base /defillama-answerer/target/release/defillama-answerer /defillama-answerer
 
 ARG CONFIG_PATH
