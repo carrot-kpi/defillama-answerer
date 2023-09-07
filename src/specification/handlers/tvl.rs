@@ -1,14 +1,15 @@
-use std::sync::Arc;
+use std::{str::FromStr, sync::Arc};
 
 use anyhow::Context;
 use async_trait::async_trait;
 use ethers::types::U256;
+use reqwest::Method;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::{
-    defillama::DefiLlamaClient,
+    http_client::HttpClient,
     specification::{Answer, Validate},
 };
 
@@ -19,13 +20,38 @@ pub struct TvlPayload {
 
 pub struct TvlHandler;
 
+impl TvlHandler {
+    async fn get_current_tvl(
+        defillama_http_client: Arc<HttpClient>,
+        protocol: &String,
+    ) -> anyhow::Result<Decimal> {
+        let raw = defillama_http_client
+            .request(Method::GET, format!("/tvl/{protocol}"))
+            .await?
+            .send()
+            .await
+            .context(format!(
+                "could not get current tvl for protocol {}",
+                protocol
+            ))?
+            .text()
+            .await
+            .context(format!(
+                "could not convert raw protocol tvl response to number for protocol {}",
+                protocol
+            ))?;
+        Ok(Decimal::from_str(raw.as_str())
+            .context(format!("could not convert {} to decimal", raw))?)
+    }
+}
+
 #[async_trait]
 impl<'a> Validate<'a, TvlPayload> for TvlHandler {
     async fn validate(
         payload: &TvlPayload,
-        defillama_client: Arc<DefiLlamaClient>,
+        defillama_http_client: Arc<HttpClient>,
     ) -> anyhow::Result<bool> {
-        match defillama_client.get_current_tvl(&payload.protocol).await {
+        match TvlHandler::get_current_tvl(defillama_http_client.clone(), &payload.protocol).await {
             Ok(_) => Ok(true),
             Err(error) => {
                 tracing::error!(
@@ -43,9 +69,10 @@ impl<'a> Validate<'a, TvlPayload> for TvlHandler {
 impl<'a> Answer<'a, TvlPayload> for TvlHandler {
     async fn answer(
         payload: &TvlPayload,
-        defillama_client: Arc<DefiLlamaClient>,
+        defillama_http_client: Arc<HttpClient>,
     ) -> anyhow::Result<Option<U256>> {
-        let raw_tvl = defillama_client.get_current_tvl(&payload.protocol).await?;
+        let raw_tvl =
+            TvlHandler::get_current_tvl(defillama_http_client.clone(), &payload.protocol).await?;
         let scaled_tvl = raw_tvl
             .checked_mul(Decimal::new(1e18 as i64, 0))
             .context(format!(
@@ -65,14 +92,13 @@ mod test {
     use std::sync::Arc;
 
     use ethers::types::U256;
-    use reqwest::Url;
     use wiremock::{
         matchers::{method, path},
         Mock, MockServer, ResponseTemplate,
     };
 
     use crate::{
-        defillama::DefiLlamaClient,
+        http_client::HttpClient,
         specification::{handlers::tvl::TvlHandler, Answer},
     };
 
@@ -86,16 +112,21 @@ mod test {
         };
 
         let defillama_mock_server = MockServer::start().await;
-        let defillama_client = Arc::new(DefiLlamaClient::new(
-            defillama_mock_server.uri().parse::<Url>().unwrap(), // guaranteed to be a valid url
-        ));
+        let defillama_http_client = Arc::new(
+            HttpClient::builder()
+                .base_url(
+                    defillama_mock_server.uri(), // guaranteed to be a valid url
+                )
+                .build()
+                .unwrap(),
+        );
         Mock::given(method("GET"))
             .and(path(format!("/tvl/{protocol}")))
             .respond_with(ResponseTemplate::new(400))
             .mount(&defillama_mock_server)
             .await;
 
-        assert!(TvlHandler::answer(&payload, defillama_client)
+        assert!(TvlHandler::answer(&payload, defillama_http_client)
             .await
             .is_err());
     }
@@ -108,9 +139,14 @@ mod test {
         };
 
         let defillama_mock_server = MockServer::start().await;
-        let defillama_client = Arc::new(DefiLlamaClient::new(
-            defillama_mock_server.uri().parse::<Url>().unwrap(), // guaranteed to be a valid url
-        ));
+        let defillama_http_client = Arc::new(
+            HttpClient::builder()
+                .base_url(
+                    defillama_mock_server.uri(), // guaranteed to be a valid url
+                )
+                .build()
+                .unwrap(),
+        );
         Mock::given(method("GET"))
             .and(path(format!("/tvl/{protocol}")))
             .respond_with(ResponseTemplate::new(200).set_body_string("1234.5678"))
@@ -118,7 +154,7 @@ mod test {
             .await;
 
         assert_eq!(
-            TvlHandler::answer(&payload, defillama_client.clone())
+            TvlHandler::answer(&payload, defillama_http_client.clone())
                 .await
                 .unwrap(),
             Some(U256::from_dec_str("1234567800000000000000").unwrap())
@@ -138,7 +174,7 @@ mod test {
             .await;
 
         assert_eq!(
-            TvlHandler::answer(&payload, defillama_client)
+            TvlHandler::answer(&payload, defillama_http_client)
                 .await
                 .unwrap(),
             Some(U256::from_dec_str("1234567891011121314151").unwrap())

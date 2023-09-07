@@ -4,12 +4,12 @@ use serde_json::Value;
 use warp::{body, http, path, post, reply, Filter, Rejection, Reply};
 
 use crate::{
-    defillama::DefiLlamaClient,
+    http_client::HttpClient,
     specification::{self, Specification},
 };
 
 pub fn handlers(
-    defillama_client: Arc<DefiLlamaClient>,
+    defillama_http_client: Arc<HttpClient>,
 ) -> impl Filter<Extract = (impl Reply,), Error = Rejection> + Clone {
     let cors = warp::cors()
         .allow_any_origin()
@@ -22,7 +22,7 @@ pub fn handlers(
         .and(post())
         .and(path::end())
         .and(body::json())
-        .and(warp::any().map(move || defillama_client.clone()))
+        .and(warp::any().map(move || defillama_http_client.clone()))
         .and_then(validate_specification)
         .with(cors);
 
@@ -43,12 +43,12 @@ pub fn handlers(
 )]
 pub async fn validate_specification(
     raw_specification: Value,
-    defillama_client: Arc<DefiLlamaClient>,
+    defillama_http_client: Arc<HttpClient>,
 ) -> Result<impl Reply, Infallible> {
     match serde_json::from_value::<Specification>(raw_specification) {
         Ok(specification) => Ok(reply::with_status(
             reply::reply(),
-            if specification::validate(&specification, defillama_client).await {
+            if specification::validate(&specification, defillama_http_client).await {
                 http::StatusCode::NO_CONTENT
             } else {
                 http::StatusCode::BAD_REQUEST

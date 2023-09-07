@@ -22,7 +22,7 @@ use crate::{
     commons::ChainExecutionContext,
     contracts::{defi_llama_oracle::DefiLlamaOracle, factory::CreateTokenFilter},
     db::models::{self, Checkpoint},
-    defillama::DefiLlamaClient,
+    http_client::HttpClient,
     scanner::commons::{acknowledge_active_oracles, parse_kpi_token_creation_logs},
     signer::{get_signer, Signer},
     specification::{self},
@@ -96,7 +96,7 @@ async fn message_receiver(
     match receiver.await {
         Ok(value) => {
             if !value {
-                todo!()
+                panic!("snapshot updates ownership channel receiver received a false value: this should never happen");
             } else {
                 *update_snapshot_block_number.lock().await = value;
                 tracing::info!("snapshot updates ownership taken");
@@ -152,7 +152,7 @@ async fn handle_new_active_oracles(
         oracles_data,
         context.db_connection_pool.clone(),
         context.ipfs_http_client.clone(),
-        context.defillama_client.clone(),
+        context.defillama_http_client.clone(),
         context.web3_storage_http_client.clone(),
     )
     .await;
@@ -198,7 +198,7 @@ async fn handle_active_oracles_answering(
             answer_active_oracle(
                 signer.clone(),
                 context.db_connection_pool.clone(),
-                context.defillama_client.clone(),
+                context.defillama_http_client.clone(),
                 active_oracle,
             )
             .instrument(info_span!("answer", chain_id, oracle_address)),
@@ -224,7 +224,7 @@ async fn handle_active_oracles_answering(
 async fn answer_active_oracle(
     signer: Arc<Signer>,
     db_connection_pool: Pool<ConnectionManager<PgConnection>>,
-    defillama_client: Arc<DefiLlamaClient>,
+    defillama_http_client: Arc<HttpClient>,
     mut active_oracle: models::ActiveOracle,
 ) -> anyhow::Result<()> {
     if let Some(tx_hash) = active_oracle.answer_tx_hash {
@@ -236,7 +236,7 @@ async fn answer_active_oracle(
     }
 
     if let Some(answer) =
-        specification::answer(&active_oracle.specification, defillama_client).await
+        specification::answer(&active_oracle.specification, defillama_http_client).await
     {
         // if we arrive here, an answer is available and we should submit it
 
