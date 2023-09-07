@@ -40,7 +40,7 @@ configs.
 > The program will automatically create the database as specified in the
 > Postgres connection string in the config (key `db_connection_string`), but it
 > will do so only if the specified user and password combination are correct, so
-> double check the Docker Compose condifuration to set them right.
+> double check the Docker Compose configuration to set them right.
 
 A note on the IPFS API and Postgres connection. For convenience the repo
 provides a Docker Compose configuration to quickly spin up a local Kubo (Go IPFS
