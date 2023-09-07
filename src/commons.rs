@@ -1,4 +1,4 @@
-use std::{collections::HashMap, net::Ipv4Addr, path::Path, sync::Arc};
+use std::{collections::HashMap, net::Ipv4Addr, path::PathBuf, sync::Arc};
 
 use anyhow::Context;
 use diesel::{
@@ -68,8 +68,7 @@ pub fn get_config(alt_path: Option<String>) -> anyhow::Result<Config> {
         .to_string_lossy()
         .to_string();
     let raw_path = alt_path.unwrap_or(default_path);
-    let path = Path::new(raw_path.as_str()).to_string_lossy().to_string();
-
-    tracing::info!("using path {} to read config", path);
+    tracing::info!("using path {} to read config", raw_path);
+    let path = PathBuf::from(raw_path);
     confy::load_path::<Config>(path).context("could not read config")
 }

@@ -12,10 +12,6 @@ pub mod telemetry;
 use std::{env, num::NonZeroU32, process::exit, sync::Arc};
 
 use anyhow::Context;
-use diesel::{
-    pg::PgConnection,
-    r2d2::{ConnectionManager, Pool},
-};
 use governor::{Quota, RateLimiter};
 use tokio::task::JoinSet;
 use tracing::{info_span, Instrument};
@@ -43,12 +39,8 @@ pub async fn main() {
         }
     };
 
-    let db_connection_manager =
-        ConnectionManager::<PgConnection>::new(&config.db_connection_string);
-    let db_connection_pool = match Pool::builder()
-        .build(db_connection_manager)
-        .context("could not build connection pool to the database")
-    {
+    tracing::info!("connecting to database");
+    let db_connection_pool = match db::connect(&config.db_connection_string) {
         Ok(db_connection_pool) => db_connection_pool,
         Err(error) => {
             tracing::error!("{:#}", error);
@@ -65,6 +57,8 @@ pub async fn main() {
             exit(1);
         }
     };
+
+    tracing::info!("running pending database migrations");
     db_connection.run_pending_migrations(MIGRATIONS).unwrap();
 
     tracing::info!("ipfs api endpoint: {}", config.ipfs_api_endpoint);
@@ -155,7 +149,7 @@ pub async fn main() {
         match join_result {
             Ok(result) => {
                 if let Err(error) = result {
-                    tracing::error!("a task unexpectedly stopped with an error::\n\n{:#}", error);
+                    tracing::error!("a task unexpectedly stopped with an error:\n\n{:#}", error);
                     exit(1);
                 }
             }

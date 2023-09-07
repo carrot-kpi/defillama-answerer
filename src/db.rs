@@ -1,18 +1,68 @@
 pub mod models;
 pub mod schema;
 
-use std::ops::Deref;
+use std::{ops::Deref, time::Duration};
 
+use anyhow::Context;
 use diesel::{
     deserialize::{self, FromSql},
-    pg::{Pg, PgValue},
+    pg::{Pg, PgConnection, PgValue},
+    prelude::*,
+    r2d2::{ConnectionManager, Pool},
     serialize::{self, ToSql},
     sql_types::{Bytea, Jsonb},
-    AsExpression, FromSqlRow,
+    AsExpression, Connection, FromSqlRow,
 };
 use ethers::types::{Address, H256, U256};
 
 use crate::specification::Specification;
+
+pub fn connect(url: &String) -> anyhow::Result<Pool<ConnectionManager<PgConnection>>> {
+    let db_connection_manager = ConnectionManager::<PgConnection>::new(url);
+    match Pool::builder()
+        .connection_timeout(Duration::from_secs(5))
+        .build(db_connection_manager)
+        .context("could not build connection pool to the database")
+    {
+        Ok(db_connection_pool) => Ok(db_connection_pool),
+        Err(error) => {
+            tracing::error!("error connecting to {} - {:#}", url, error);
+
+            let parsed_url = reqwest::Url::parse(url).context(format!(
+                "could not parse database connection string {}",
+                url
+            ))?;
+
+            let database = parsed_url.path().chars().skip(1).collect::<String>();
+            let database = database.as_str();
+            let username = parsed_url.username();
+            tracing::info!("creating database {}", database);
+
+            // connect to "postgres" database
+            let mut pg_db_parsed_url = parsed_url.clone();
+            pg_db_parsed_url.set_path("postgres");
+            let mut pg_db_connection = PgConnection::establish(pg_db_parsed_url.as_str())
+                .context("could not connect to admin postgres database")?;
+
+            // create database
+            diesel::sql_query(format!("CREATE DATABASE \"{}\";", database))
+                .execute(&mut pg_db_connection)
+                .context(format!("failed to create database {}", database))?;
+            diesel::sql_query(format!(
+                "GRANT ALL PRIVILEGES ON DATABASE \"{}\" TO \"{}\";",
+                database, username
+            ))
+            .execute(&mut pg_db_connection)
+            .context(format!(
+                "failed to grant privileges on database {} to user {}",
+                database, username
+            ))?;
+
+            // the database has been created at this point: use the og url to connect
+            connect(url)
+        }
+    }
+}
 
 #[derive(FromSqlRow, AsExpression, Debug, PartialEq)]
 #[diesel(sql_type = Bytea)]
