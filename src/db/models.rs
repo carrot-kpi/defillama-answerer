@@ -2,7 +2,7 @@ use std::time::SystemTime;
 
 use anyhow::Context;
 use diesel::prelude::*;
-use ethers::types::{Address, H256};
+use ethers::types::{Address, H256, U256};
 
 use crate::specification::Specification;
 
@@ -11,7 +11,7 @@ use super::{
         active_oracles::{self},
         checkpoints,
     },
-    DbAddress, DbTxHash,
+    DbAddress, DbTxHash, DbU256,
 };
 
 #[derive(Queryable, Selectable, Insertable, Debug, PartialEq)]
@@ -24,6 +24,7 @@ pub struct ActiveOracle {
     pub measurement_timestamp: SystemTime,
     pub specification: Specification,
     pub answer_tx_hash: Option<DbTxHash>,
+    pub answer: Option<DbU256>,
 }
 
 impl ActiveOracle {
@@ -33,13 +34,14 @@ impl ActiveOracle {
         chain_id: u64,
         measurement_timestamp: SystemTime,
         specification: Specification,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<ActiveOracle> {
         let oracle = ActiveOracle {
             address: DbAddress(address),
             chain_id: i32::try_from(chain_id).unwrap(), // this should never panic
             measurement_timestamp,
             specification,
             answer_tx_hash: None,
+            answer: None,
         };
 
         diesel::insert_into(active_oracles::table)
@@ -47,7 +49,7 @@ impl ActiveOracle {
             .execute(connection)
             .context("could not insert oracle into database")?;
 
-        Ok(())
+        Ok(oracle)
     }
 
     pub fn update_answer_tx_hash(
@@ -59,7 +61,7 @@ impl ActiveOracle {
             .set(active_oracles::dsl::answer_tx_hash.eq(DbTxHash(answer_tx_hash)))
             .execute(connection)
             .context(format!(
-                "could not update active oracle {} answer tx hash",
+                "could not update active oracle 0x{:x} answer tx hash",
                 self.address.0
             ))?;
         self.answer_tx_hash = Some(DbTxHash(answer_tx_hash));
@@ -71,10 +73,38 @@ impl ActiveOracle {
             .set(active_oracles::dsl::answer_tx_hash.eq(None::<DbTxHash>))
             .execute(connection)
             .context(format!(
-                "could not delete active oracle {} answer tx hash",
+                "could not delete active oracle 0x{:x} answer tx hash",
                 self.address.0
             ))?;
         self.answer_tx_hash = None;
+        Ok(())
+    }
+
+    pub fn update_answer(
+        &mut self,
+        connection: &mut PgConnection,
+        answer: U256,
+    ) -> anyhow::Result<()> {
+        diesel::update(active_oracles::dsl::active_oracles)
+            .set(active_oracles::dsl::answer.eq(DbU256(answer)))
+            .execute(connection)
+            .context(format!(
+                "could not update active oracle 0x{:x} answer",
+                self.address.0
+            ))?;
+        self.answer = Some(DbU256(answer));
+        Ok(())
+    }
+
+    pub fn delete_answer(&mut self, connection: &mut PgConnection) -> anyhow::Result<()> {
+        diesel::update(active_oracles::dsl::active_oracles)
+            .set(active_oracles::dsl::answer.eq(None::<DbU256>))
+            .execute(connection)
+            .context(format!(
+                "could not delete active oracle 0x{:x} answer",
+                self.address.0
+            ))?;
+        self.answer = None;
         Ok(())
     }
 

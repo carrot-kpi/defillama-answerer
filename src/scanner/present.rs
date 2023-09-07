@@ -235,43 +235,51 @@ async fn answer_active_oracle(
         return Ok(());
     }
 
-    if let Some(answer) =
-        specification::answer(&active_oracle.specification, defillama_http_client).await
+    let mut db_connection = match db_connection_pool
+        .get()
+        .context("could not get new connection from pool")
     {
+        Ok(db_connection) => db_connection,
+        Err(error) => {
+            tracing::error!(
+                    "could not get database connection while trying to update oracle's answer tx hash\n\n{:#}",
+                    error
+                );
+            return Ok(());
+        }
+    };
+
+    let answer = match &active_oracle.answer {
+        Some(answer) => {
+            tracing::info!("reusing saved answer {}", answer.0);
+            Some(answer.0)
+        }
+        None => {
+            let answer =
+                specification::answer(&active_oracle.specification, defillama_http_client).await;
+            if let Some(answer) = answer {
+                if let Err(error) = active_oracle.update_answer(&mut db_connection, answer) {
+                    tracing::error!("{:#}", error);
+                    return Ok(());
+                }
+            }
+            answer
+        }
+    };
+    if let Some(answer) = answer {
         // if we arrive here, an answer is available and we should submit it
 
-        tracing::info!(
-            "answering active oracle 0x{:x} with value {}",
-            active_oracle.address.0,
-            answer
-        );
+        tracing::info!("answering with value {}", answer);
         let oracle = DefiLlamaOracle::new(active_oracle.address.0, signer);
         let tx = oracle.finalize(answer);
         let tx = match tx.send().await {
             Ok(tx) => tx,
             Err(error) => {
-                tracing::error!(
-                    "error while sending answer transaction to oracle 0x{:x} - {}",
-                    active_oracle.address.deref(),
-                    error,
-                );
+                tracing::error!("error while sending answer transaction - {}", error,);
                 return Ok(());
             }
         };
 
-        let mut db_connection = match db_connection_pool
-            .get()
-            .context("could not get new connection from pool")
-        {
-            Ok(db_connection) => db_connection,
-            Err(error) => {
-                tracing::error!(
-                    "could not get database connection while trying to update oracle's answer tx hash\n\n{:#}",
-                    error
-                );
-                return Ok(());
-            }
-        };
         if let Err(error) = active_oracle.update_answer_tx_hash(&mut db_connection, tx.tx_hash()) {
             tracing::error!("{:#}", error);
             return Ok(());
@@ -280,11 +288,7 @@ async fn answer_active_oracle(
         let receipt = match tx.await {
             Ok(receipt) => receipt,
             Err(error) => {
-                tracing::error!(
-                    "error while confirming answer transaction to oracle 0x{:x} - {}",
-                    active_oracle.address.deref(),
-                    error,
-                );
+                tracing::error!("error while confirming answer transaction - {}", error,);
 
                 // we need to throw this error as this needs to be addressed immediately.
                 // not being able to delete the tx hash for an oracle once an answer task
@@ -309,17 +313,10 @@ async fn answer_active_oracle(
                         return Ok(());
                     }
                 };
-                tracing::info!(
-                    "paid {} to answer oracle 0x{:x}",
-                    formatted,
-                    active_oracle.address.deref()
-                );
+                tracing::info!("paid {} to answer oracle", formatted);
             }
         } else {
-            tracing::warn!(
-                "could not determine paid amount to answer oracle 0x{:x}",
-                active_oracle.address.deref()
-            );
+            tracing::warn!("could not determine paid amount to answer oracle");
         }
 
         let active_oracle_address = active_oracle.address.0.clone();
@@ -328,11 +325,7 @@ async fn answer_active_oracle(
             return Ok(());
         }
 
-        tracing::info!(
-            "oracle 0x{:x} successfully finalized with value {}",
-            active_oracle_address,
-            answer
-        );
+        tracing::info!("oracle successfully finalized with value {}", answer);
     }
 
     Ok(())
