@@ -1,6 +1,7 @@
-use std::{num::NonZeroU32, ops::Deref, sync::Arc};
+use std::{num::NonZeroU32, ops::Deref, sync::Arc, time::Duration};
 
-use anyhow::Context;
+use anyhow::{anyhow, Context};
+use backoff::ExponentialBackoffBuilder;
 use ethers::{contract::EthEvent, providers::Middleware, types::Filter};
 use governor::{Quota, RateLimiter};
 use tokio::sync::oneshot;
@@ -81,7 +82,29 @@ pub async fn scan<'a>(
         // apply rate limiting
         rate_limiter.until_ready().await;
 
-        let logs = match signer.get_logs(&filter).await {
+        let fetch_logs = || async {
+            signer
+                .get_logs(&filter)
+                .await
+                .map_err(|err| backoff::Error::Transient {
+                    err: anyhow!(
+                        "error fetching logs from block {} to {}, retrying with exponential backoff: {:#}",
+                        from_block,
+                        to_block,
+                        err
+                    ),
+                    retry_after: None,
+                })
+        };
+
+        let logs = match backoff::future::retry(
+            ExponentialBackoffBuilder::new()
+                .with_max_elapsed_time(Some(Duration::from_secs(8)))
+                .build(),
+            fetch_logs,
+        )
+        .await
+        {
             Ok(logs) => logs,
             Err(error) => {
                 tracing::error!(
