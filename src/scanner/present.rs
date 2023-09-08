@@ -1,6 +1,7 @@
-use std::{ops::Deref, sync::Arc};
+use std::{num::NonZeroU32, ops::Deref, sync::Arc, time::Duration};
 
-use anyhow::Context;
+use anyhow::{anyhow, Context};
+use backoff::ExponentialBackoffBuilder;
 use diesel::{
     r2d2::{ConnectionManager, Pool},
     PgConnection,
@@ -11,6 +12,7 @@ use ethers::{
     types::{Block, Filter, H256},
     utils,
 };
+use governor::{Quota, RateLimiter};
 use tokio::{
     sync::{oneshot, Mutex},
     task::JoinSet,
@@ -39,7 +41,13 @@ pub async fn scan(
             .instrument(info_span!("message-receiver")),
     );
 
+    // enforces a minimum wait time of 1 sec before attempting to reconnect in
+    // the loop
+    let rate_limiter = RateLimiter::direct(Quota::per_second(NonZeroU32::new(1u32).unwrap()));
+
     loop {
+        rate_limiter.until_ready().await;
+
         let signer = get_signer(
             context.ws_rpc_endpoint.clone(),
             context.answerer_private_key.clone(),
@@ -119,7 +127,29 @@ async fn handle_new_active_oracles(
         .address(context.factory_config.address)
         .event(CreateTokenFilter::abi_signature().deref())
         .at_block_hash(block.hash.unwrap());
-    let kpi_token_creation_logs = match signer.get_logs(&filter).await {
+
+    let fetch_logs = || async {
+        signer
+            .get_logs(&filter)
+            .await
+            .map_err(|err| backoff::Error::Transient {
+                err: anyhow!(
+                    "error fetching logs from block {}, retrying with exponential backoff: {:#}",
+                    block_number,
+                    err
+                ),
+                retry_after: None,
+            })
+    };
+
+    let kpi_token_creation_logs = match backoff::future::retry(
+        ExponentialBackoffBuilder::new()
+            .with_max_elapsed_time(Some(Duration::from_secs(8)))
+            .build(),
+        fetch_logs,
+    )
+    .await
+    {
         Ok(logs) => logs,
         Err(error) => {
             tracing::error!(
