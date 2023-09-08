@@ -26,8 +26,6 @@ pub fn connect(url: &String) -> anyhow::Result<Pool<ConnectionManager<PgConnecti
     {
         Ok(db_connection_pool) => Ok(db_connection_pool),
         Err(error) => {
-            tracing::error!("error connecting to {} - {:#}", url, error);
-
             let parsed_url = reqwest::Url::parse(url).context(format!(
                 "could not parse database connection string {}",
                 url
@@ -36,7 +34,11 @@ pub fn connect(url: &String) -> anyhow::Result<Pool<ConnectionManager<PgConnecti
             let database = parsed_url.path().chars().skip(1).collect::<String>();
             let database = database.as_str();
             let username = parsed_url.username();
-            tracing::info!("creating database {}", database);
+            tracing::error!(
+                "error connecting to database {}, trying to create it:\n\n{:#}",
+                database,
+                error
+            );
 
             // connect to "postgres" database
             let mut pg_db_parsed_url = parsed_url.clone();
