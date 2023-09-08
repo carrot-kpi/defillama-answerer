@@ -1,4 +1,4 @@
-use std::{ops::Deref, sync::Arc, time::Duration};
+use std::{num::NonZeroU32, ops::Deref, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Context};
 use backoff::ExponentialBackoffBuilder;
