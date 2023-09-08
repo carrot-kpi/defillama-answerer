@@ -85,7 +85,7 @@ pub async fn scan<'a>(
             Ok(logs) => logs,
             Err(error) => {
                 tracing::error!(
-                    "error fetching logs from block {} to {}: {:#}",
+                    "error fetching logs from block {} to {}, retrying: {:#}",
                     from_block,
                     to_block,
                     error
@@ -124,6 +124,16 @@ pub async fn scan<'a>(
             context.web3_storage_http_client.clone(),
         )
         .await;
+
+        let database_connection = &mut context
+            .db_connection_pool
+            .get()
+            .context("could not get new connection from pool")?;
+        if let Err(error) =
+            models::Checkpoint::update(database_connection, context.chain_id, to_block as i64)
+        {
+            tracing::error!("could not update snapshot block number - {:#}", error);
+        }
 
         if to_block == block_number {
             break;
