@@ -118,7 +118,7 @@ async fn handle_new_active_oracles(
     let filter = Filter::new()
         .address(context.factory_config.address)
         .event(CreateTokenFilter::abi_signature().deref())
-        .from_block(block_number);
+        .at_block_hash(block.hash.unwrap());
     let kpi_token_creation_logs = match signer.get_logs(&filter).await {
         Ok(logs) => logs,
         Err(error) => {
