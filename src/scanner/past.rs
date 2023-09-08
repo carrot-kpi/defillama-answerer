@@ -85,7 +85,7 @@ pub async fn scan<'a>(
             Ok(logs) => logs,
             Err(error) => {
                 tracing::error!(
-                    "error fetching logs from block {} to {}: {:#}",
+                    "error fetching logs from block {} to {}, retrying: {:#}",
                     from_block,
                     to_block,
                     error
