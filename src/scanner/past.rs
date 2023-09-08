@@ -125,6 +125,16 @@ pub async fn scan<'a>(
         )
         .await;
 
+        let database_connection = &mut context
+            .db_connection_pool
+            .get()
+            .context("could not get new connection from pool")?;
+        if let Err(error) =
+            models::Checkpoint::update(database_connection, context.chain_id, to_block as i64)
+        {
+            tracing::error!("could not update snapshot block number - {:#}", error);
+        }
+
         if to_block == block_number {
             break;
         }
