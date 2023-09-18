@@ -93,6 +93,8 @@ case. In particular:
   terminal followed by a
   `INSERT INTO checkpoints (chain_id, block_number) VALUES (<CHAIN_ID>, <BLOCK_NUMBER>) ON CONFLICT (chain_id) DO UPDATE SET block_number = <BLOCK_NUMBER>;`
   (remember the ending semicolon) in the Postgres prompt.
+- It is also possible to run the `answerer` in `dev` mode setting the `dev_mode` configuration property to `true` in the `.config.yaml` file.
+  By doing this, the indexing of previous blocks will be disabled, while the index will remain enabled for any future blocks.
 - Local nodes such as Ganache work by default in "automining" mode, meaning that
   no new block is produced unless a transaction is processed or unless manually
   triggered. This is a problem because the answerer reacts on new block events

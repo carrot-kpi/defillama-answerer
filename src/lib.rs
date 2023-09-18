@@ -39,6 +39,10 @@ pub async fn main() {
         }
     };
 
+    if config.dev_mode {
+        tracing::info!("running in dev mode, past-indexer disabled");
+    }
+
     tracing::info!("connecting to database");
     let db_connection_pool = match db::connect(&config.db_connection_string) {
         Ok(db_connection_pool) => db_connection_pool,
@@ -130,6 +134,7 @@ pub async fn main() {
             web3_storage_http_client: web3_storage_http_client.clone(),
             db_connection_pool: db_connection_pool.clone(),
             factory_config: chain_config.factory,
+            dev_mode: config.dev_mode,
         });
 
         join_set.spawn(scanner::scan(execution_context));

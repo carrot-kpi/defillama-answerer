@@ -31,7 +31,9 @@ pub async fn scan(context: Arc<ChainExecutionContext>) -> anyhow::Result<()> {
         past::scan(tx, context.clone()).instrument(info_span!("past-indexer", chain_id));
 
     let mut join_set = JoinSet::new();
-    join_set.spawn(past_indexing_future);
+    if !context.dev_mode {
+        join_set.spawn(past_indexing_future);
+    }
     join_set.spawn(present_indexing_future);
 
     // wait forever unless some task stops with an error
