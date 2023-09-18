@@ -60,6 +60,7 @@ pub struct ChainExecutionContext {
     pub web3_storage_http_client: Option<Arc<HttpClient>>,
     pub db_connection_pool: Pool<ConnectionManager<PgConnection>>,
     pub factory_config: ContractConfig,
+    pub dev_mode: bool,
 }
 
 pub fn get_config(alt_path: Option<String>) -> anyhow::Result<Config> {

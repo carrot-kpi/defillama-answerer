@@ -23,8 +23,18 @@ pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations");
 
 const MAX_CALLS_PER_SECOND_DEFILLAMA: u32 = 7;
 const MAX_CALLS_PER_SECOND_WEB3_STORAGE: u32 = 3;
+const DEV_MODE: &str = "dev";
 
 pub async fn main() {
+    let args: Vec<String> = env::args().collect();
+
+    let dev_mode = if args[1] == DEV_MODE {
+        tracing::info!("dev mode enabled, past-indexer disabled");
+        true
+    } else {
+        false
+    };
+
     if let Err(error) = telemetry::init().context("could not initialize logging system") {
         tracing::error!("{:#}", error);
         exit(1);
@@ -130,6 +140,7 @@ pub async fn main() {
             web3_storage_http_client: web3_storage_http_client.clone(),
             db_connection_pool: db_connection_pool.clone(),
             factory_config: chain_config.factory,
+            dev_mode,
         });
 
         join_set.spawn(scanner::scan(execution_context));
