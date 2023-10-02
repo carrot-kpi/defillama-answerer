@@ -14,6 +14,7 @@ use ethers::{
     types::{Address, Log, U256},
 };
 use tokio::task::JoinSet;
+use tracing::info_span;
 use tracing_futures::Instrument;
 
 use crate::{
@@ -233,12 +234,17 @@ pub async fn acknowledge_active_oracle(
             .context("could not insert new active oracle into database")?;
 
             if let Some(web3_storage_http_client) = web3_storage_http_client {
-                ipfs::pin_on_web3_storage_with_retry(
+                let oracle_address = format!("0x{:x}", oracle_data.address);
+                tokio::spawn(ipfs::pin_on_web3_storage_with_retry(
                     ipfs_http_client,
                     web3_storage_http_client,
-                    &oracle_data.specification_cid,
-                )
-                .await?;
+                    oracle_data.specification_cid.clone(),
+                ))
+                .instrument(info_span!(
+                    "web3-storage-pinner",
+                    chain_id,
+                    oracle_address
+                ));
             }
 
             tracing::info!(
