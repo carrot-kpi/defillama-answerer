@@ -1,6 +1,6 @@
 mod commons;
 
-use std::time::UNIX_EPOCH;
+use std::time::{Duration, UNIX_EPOCH};
 
 use crate::commons::context::TestContext;
 use defillama_answerer::{
@@ -28,6 +28,7 @@ fn test_to_from_sql() {
         chain_id,
         UNIX_EPOCH,
         specification.clone(),
+        UNIX_EPOCH + Duration::from_secs(10),
     )
     .expect("could not save active oracle to database");
 

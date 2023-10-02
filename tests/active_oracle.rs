@@ -1,6 +1,6 @@
 mod commons;
 
-use std::time::UNIX_EPOCH;
+use std::time::{Duration, UNIX_EPOCH};
 
 use crate::commons::context::TestContext;
 use anyhow::Context;
@@ -29,6 +29,7 @@ fn test_to_from_sql_specification() {
         specification: Specification::Tvl(TvlPayload {
             protocol: "foo".to_owned(),
         }),
+        expiration: Some(UNIX_EPOCH + Duration::from_secs(10)),
         answer_tx_hash: None,
         answer: None,
     };
@@ -43,6 +44,7 @@ fn test_to_from_sql_specification() {
         active_oracle.chain_id as u64,
         active_oracle.measurement_timestamp,
         active_oracle.specification.clone(),
+        active_oracle.expiration.unwrap(),
     )
     .expect("could not save active oracle to database");
 
@@ -68,6 +70,7 @@ fn test_to_from_sql_answer() {
         specification: Specification::Tvl(TvlPayload {
             protocol: "foo".to_owned(),
         }),
+        expiration: Some(UNIX_EPOCH + Duration::from_secs(10)),
         answer_tx_hash: None,
         answer: Some(DbU256(answer)),
     };
@@ -82,6 +85,7 @@ fn test_to_from_sql_answer() {
         active_oracle.chain_id as u64,
         active_oracle.measurement_timestamp,
         active_oracle.specification.clone(),
+        active_oracle.expiration.unwrap(),
     )
     .expect("could not save active oracle to database");
 
@@ -121,6 +125,7 @@ fn test_answer_tx_hash_update() {
         specification: Specification::Tvl(TvlPayload {
             protocol: "foo".to_owned(),
         }),
+        expiration: Some(UNIX_EPOCH + Duration::from_secs(10)),
         answer_tx_hash: None,
         answer: None,
     };
@@ -135,6 +140,7 @@ fn test_answer_tx_hash_update() {
         active_oracle.chain_id as u64,
         active_oracle.measurement_timestamp,
         active_oracle.specification.clone(),
+        active_oracle.expiration.unwrap(),
     )
     .expect("could not save active oracle to database");
 
@@ -176,6 +182,7 @@ fn test_answer_tx_hash_deletion() {
         specification: Specification::Tvl(TvlPayload {
             protocol: "foo".to_owned(),
         }),
+        expiration: Some(UNIX_EPOCH + Duration::from_secs(10)),
         answer_tx_hash: Some(DbTxHash(H256::random())),
         answer: None,
     };
@@ -229,6 +236,7 @@ fn test_answer_deletion() {
         specification: Specification::Tvl(TvlPayload {
             protocol: "foo".to_owned(),
         }),
+        expiration: Some(UNIX_EPOCH + Duration::from_secs(10)),
         answer_tx_hash: Some(DbTxHash(H256::random())),
         answer: None,
     };
@@ -267,4 +275,60 @@ fn test_answer_deletion() {
     let updated_oracle_from_db = oracles.into_iter().nth(0).unwrap();
     assert_eq!(updated_oracle_from_db, oracle_from_db);
     assert!(updated_oracle_from_db.answer.is_none());
+}
+
+#[test]
+fn test_expiration_update() {
+    let context = TestContext::new("active_oracle_expiration_update");
+
+    let mut active_oracle = ActiveOracle {
+        address: DbAddress(Address::random()),
+        chain_id: 100,
+        measurement_timestamp: UNIX_EPOCH,
+        specification: Specification::Tvl(TvlPayload {
+            protocol: "foo".to_owned(),
+        }),
+        expiration: Some(UNIX_EPOCH + Duration::from_secs(10)),
+        answer_tx_hash: None,
+        answer: None,
+    };
+
+    let mut db_connection = context
+        .db_connection_pool
+        .get()
+        .expect("could not get connection from pool");
+    models::ActiveOracle::create(
+        &mut db_connection,
+        active_oracle.address.0,
+        active_oracle.chain_id as u64,
+        active_oracle.measurement_timestamp,
+        active_oracle.specification.clone(),
+        active_oracle.expiration.unwrap(),
+    )
+    .expect("could not save active oracle to database");
+
+    let oracles = models::ActiveOracle::get_all_answerable_for_chain_id(
+        &mut db_connection,
+        active_oracle.chain_id as u64,
+    )
+    .expect("could not get active oracles from database");
+    assert_eq!(oracles.len(), 1);
+    assert_eq!(oracles.into_iter().nth(0).unwrap(), active_oracle);
+
+    let new_expiration = UNIX_EPOCH + Duration::from_secs(1_000);
+    active_oracle
+        .update_expiration(&mut db_connection, new_expiration)
+        .context("could not update expiration")
+        .unwrap();
+
+    let oracles = models::ActiveOracle::get_all_answerable_for_chain_id(
+        &mut db_connection,
+        active_oracle.chain_id as u64,
+    )
+    .expect("could not get active oracles from database");
+    assert_eq!(oracles.len(), 1);
+
+    let active_oracle_from_db = oracles.into_iter().nth(0).unwrap();
+    assert_eq!(active_oracle_from_db, active_oracle);
+    assert_eq!(active_oracle_from_db.expiration, Some(new_expiration));
 }

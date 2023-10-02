@@ -1,0 +1,1 @@
+ALTER TABLE active_oracles DROP COLUMN expiration;

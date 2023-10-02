@@ -1,4 +1,9 @@
-use std::{num::NonZeroU32, ops::Deref, sync::Arc, time::Duration};
+use std::{
+    num::NonZeroU32,
+    ops::Deref,
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::{anyhow, Context};
 use backoff::ExponentialBackoffBuilder;
@@ -7,6 +12,7 @@ use diesel::{
     PgConnection,
 };
 use ethers::{
+    abi::Address,
     contract::EthEvent,
     providers::{Middleware, StreamExt},
     types::{Block, Filter, H256},
@@ -22,8 +28,10 @@ use tracing_futures::Instrument;
 
 use crate::{
     commons::ChainExecutionContext,
-    contracts::{defi_llama_oracle::DefiLlamaOracle, factory::CreateTokenFilter},
-    db::models::{self, Checkpoint},
+    contracts::{
+        defi_llama_oracle::DefiLlamaOracle, factory::CreateTokenFilter, kpi_token::KPIToken,
+    },
+    db::models::{self, ActiveOracle, Checkpoint},
     http_client::HttpClient,
     scanner::commons::{acknowledge_active_oracles, parse_kpi_token_creation_logs},
     signer::{get_signer, Signer},
@@ -279,6 +287,22 @@ async fn answer_active_oracle(
         }
     };
 
+    match is_active_oracle_expired(db_connection_pool, signer.clone(), &mut active_oracle).await {
+        Ok(expired) => {
+            if expired {
+                tracing::info!("oracle is expired, skipping");
+                if let Err(error) = active_oracle.delete(&mut db_connection) {
+                    tracing::error!("{:#}", error);
+                }
+                return Ok(());
+            }
+        }
+        Err(error) => {
+            tracing::error!("could not get expiration status for oracle\n\n{:#}", error);
+            return Ok(());
+        }
+    }
+
     let answer = match &active_oracle.answer {
         Some(answer) => {
             tracing::info!("reusing saved answer {}", answer.0);
@@ -358,4 +382,48 @@ async fn answer_active_oracle(
     }
 
     Ok(())
+}
+
+async fn is_active_oracle_expired(
+    db_connection_pool: Pool<ConnectionManager<PgConnection>>,
+    signer: Arc<Signer>,
+    active_oracle: &mut ActiveOracle,
+) -> anyhow::Result<bool> {
+    let expiration = match active_oracle.expiration {
+        Some(expiration) => expiration,
+        None => {
+            let mut db_connection = db_connection_pool.get().context(format!(
+                "could not get database connection while trying to update oracle's expiration"
+            ))?;
+
+            let expiration =
+                fetch_active_oracle_expiration(signer.clone(), active_oracle.address.0)
+                    .await
+                    .context(format!(
+                        "could not fetch active oracle 0x{:x} expiration",
+                        active_oracle.address.0
+                    ))?;
+            active_oracle.update_expiration(&mut db_connection, expiration)?;
+            expiration
+        }
+    };
+
+    Ok(expiration <= SystemTime::now())
+}
+
+async fn fetch_active_oracle_expiration(
+    signer: Arc<Signer>,
+    address: Address,
+) -> anyhow::Result<SystemTime> {
+    let oracle = DefiLlamaOracle::new(address, signer.clone());
+    let kpi_token_address = oracle.kpi_token().call().await.context(format!(
+        "could not fetch kpi token address for oracle 0x{:x}",
+        address
+    ))?;
+    let kpi_token = KPIToken::new(kpi_token_address, signer.clone());
+    let expiration = kpi_token.expiration().call().await.context(format!(
+        "could not fetch expiration timestamp for kpi token 0x{:x}",
+        kpi_token_address
+    ))?;
+    Ok(UNIX_EPOCH + Duration::from_secs(expiration.as_u64()))
 }

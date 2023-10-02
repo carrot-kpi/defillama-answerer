@@ -11,7 +11,7 @@ use diesel::{
 use ethers::{
     abi::RawLog,
     contract::{EthLogDecode, Multicall},
-    types::{Address, Log},
+    types::{Address, Log, U256},
 };
 use tokio::task::JoinSet;
 use tracing_futures::Instrument;
@@ -33,6 +33,7 @@ pub struct DefiLlamaOracleData {
     address: Address,
     measurement_timestamp: SystemTime,
     specification_cid: String,
+    expiration: SystemTime,
 }
 
 pub async fn parse_kpi_token_creation_logs(
@@ -74,17 +75,21 @@ pub async fn parse_kpi_token_creation_log(
     };
 
     let mut data = Vec::new();
-    let oracle_addresses = KPIToken::new(token_address, signer.clone())
-        .oracles()
-        .call()
+    let mut multicall = Multicall::new_with_chain_id(signer.clone(), None, Some(chain_id))?;
+    let kpi_token = KPIToken::new(token_address, signer.clone());
+    let (oracle_addresses, kpi_token_expiration) = multicall
+        .add_call(kpi_token.oracles(), false)
+        .add_call(kpi_token.expiration(), false)
+        .call::<(Vec<Address>, U256)>()
         .await
         .context(format!(
-            "could not get oracles for kpi token {}",
+            "could not get oracles and expiration for kpi token 0x{:x}",
             token_address
         ))?;
+    let kpi_token_expiration = UNIX_EPOCH + Duration::from_secs(kpi_token_expiration.as_u64());
     for oracle_address in oracle_addresses.into_iter() {
         let oracle = DefiLlamaOracle::new(oracle_address, signer.clone());
-        match Multicall::new_with_chain_id(signer.clone(), None, Some(chain_id))?
+        match multicall
             .add_call(oracle.finalized(), false)
             .add_call(oracle.template(), false)
             .call::<(bool, Template)>()
@@ -137,6 +142,7 @@ pub async fn parse_kpi_token_creation_log(
                     address: oracle_address,
                     measurement_timestamp,
                     specification_cid: specification,
+                    expiration: kpi_token_expiration,
                 });
             }
             Err(_) => {
@@ -222,6 +228,7 @@ pub async fn acknowledge_active_oracle(
                 chain_id,
                 oracle_data.measurement_timestamp,
                 specification,
+                oracle_data.expiration,
             )
             .context("could not insert new active oracle into database")?;
 
