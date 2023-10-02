@@ -20,7 +20,7 @@ use crate::specification::Specification;
 pub fn connect(url: &String) -> anyhow::Result<Pool<ConnectionManager<PgConnection>>> {
     let db_connection_manager = ConnectionManager::<PgConnection>::new(url);
     match Pool::builder()
-        .connection_timeout(Duration::from_secs(5))
+        .connection_timeout(Duration::from_secs(30))
         .build(db_connection_manager)
         .context("could not build connection pool to the database")
     {
