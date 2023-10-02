@@ -23,6 +23,7 @@ pub struct ActiveOracle {
     pub chain_id: i32,
     pub measurement_timestamp: SystemTime,
     pub specification: Specification,
+    pub expiration: Option<SystemTime>,
     pub answer_tx_hash: Option<DbTxHash>,
     pub answer: Option<DbU256>,
 }
@@ -34,12 +35,14 @@ impl ActiveOracle {
         chain_id: u64,
         measurement_timestamp: SystemTime,
         specification: Specification,
+        expiration: SystemTime,
     ) -> anyhow::Result<ActiveOracle> {
         let oracle = ActiveOracle {
             address: DbAddress(address),
             chain_id: i32::try_from(chain_id).unwrap(), // this should never panic
             measurement_timestamp,
             specification,
+            expiration: Some(expiration),
             answer_tx_hash: None,
             answer: None,
         };
@@ -105,6 +108,22 @@ impl ActiveOracle {
                 self.address.0
             ))?;
         self.answer = None;
+        Ok(())
+    }
+
+    pub fn update_expiration(
+        &mut self,
+        connection: &mut PgConnection,
+        expiration: SystemTime,
+    ) -> anyhow::Result<()> {
+        diesel::update(active_oracles::dsl::active_oracles)
+            .set(active_oracles::dsl::expiration.eq(Some(expiration)))
+            .execute(connection)
+            .context(format!(
+                "could not update active oracle 0x{:x} expiration",
+                self.address.0
+            ))?;
+        self.expiration = Some(expiration);
         Ok(())
     }
 
