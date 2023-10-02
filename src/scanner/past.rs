@@ -52,6 +52,8 @@ pub async fn scan<'a>(
                     .as_str(),
                 )
             });
+    drop(db_connection);
+
     let mut from_block = checkpoint_block.unwrap_or(context.factory_config.deployment_block);
     let full_range = block_number - from_block;
     let chunk_size = context.logs_blocks_range.unwrap_or(DEFAULT_LOGS_CHUNK_SIZE);
