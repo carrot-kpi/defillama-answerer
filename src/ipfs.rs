@@ -63,7 +63,7 @@ struct CARUploadResponse {
 pub async fn pin_on_web3_storage_with_retry(
     ipfs_http_client: Arc<HttpClient>,
     web3_storage_http_client: Arc<HttpClient>,
-    cid: &String,
+    cid: String,
 ) -> anyhow::Result<()> {
     let pin = || async {
         // export dag from ipfs
