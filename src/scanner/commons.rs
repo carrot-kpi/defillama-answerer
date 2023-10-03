@@ -88,6 +88,7 @@ pub async fn parse_kpi_token_creation_log(
             token_address
         ))?;
     let kpi_token_expiration = UNIX_EPOCH + Duration::from_secs(kpi_token_expiration.as_u64());
+    multicall.clear_calls();
     for oracle_address in oracle_addresses.into_iter() {
         let oracle = DefiLlamaOracle::new(oracle_address, signer.clone());
         match multicall
