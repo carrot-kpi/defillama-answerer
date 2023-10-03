@@ -51,19 +51,22 @@ pub async fn main() {
             exit(1);
         }
     };
-    let mut db_connection = match db_connection_pool
-        .get()
-        .context("could not get connection to database to run migrations")
-    {
-        Ok(db_connection) => db_connection,
-        Err(error) => {
-            tracing::error!("{:#}", error);
-            exit(1);
-        }
-    };
 
-    tracing::info!("running pending database migrations");
-    db_connection.run_pending_migrations(MIGRATIONS).unwrap();
+    {
+        let mut db_connection = match db_connection_pool
+            .get()
+            .context("could not get connection to database to run migrations")
+        {
+            Ok(db_connection) => db_connection,
+            Err(error) => {
+                tracing::error!("{:#}", error);
+                exit(1);
+            }
+        };
+
+        tracing::info!("running pending database migrations");
+        db_connection.run_pending_migrations(MIGRATIONS).unwrap();
+    }
 
     tracing::info!("ipfs api endpoint: {}", config.ipfs_api_endpoint);
     let ipfs_http_client = match HttpClient::builder()

@@ -222,6 +222,7 @@ async fn handle_active_oracles_answering(
             return Ok(());
         }
     };
+    drop(db_connection);
 
     let active_oracles_len = active_oracles.len();
     if active_oracles_len > 0 {
@@ -273,23 +274,29 @@ async fn answer_active_oracle(
         return Ok(());
     }
 
-    let mut db_connection = match db_connection_pool
-        .get()
-        .context("could not get new connection from pool")
+    match is_active_oracle_expired(
+        db_connection_pool.clone(),
+        signer.clone(),
+        &mut active_oracle,
+    )
+    .await
     {
-        Ok(db_connection) => db_connection,
-        Err(error) => {
-            tracing::error!(
+        Ok(expired) => {
+            if expired {
+                let mut db_connection = match db_connection_pool
+                    .get()
+                    .context("could not get new connection from pool")
+                {
+                    Ok(db_connection) => db_connection,
+                    Err(error) => {
+                        tracing::error!(
                     "could not get database connection while trying to update oracle's answer tx hash\n\n{:#}",
                     error
                 );
-            return Ok(());
-        }
-    };
+                        return Ok(());
+                    }
+                };
 
-    match is_active_oracle_expired(db_connection_pool, signer.clone(), &mut active_oracle).await {
-        Ok(expired) => {
-            if expired {
                 tracing::info!("oracle is expired, skipping");
                 if let Err(error) = active_oracle.delete(&mut db_connection) {
                     tracing::error!("{:#}", error);
@@ -312,6 +319,20 @@ async fn answer_active_oracle(
             let answer =
                 specification::answer(&active_oracle.specification, defillama_http_client).await;
             if let Some(answer) = answer {
+                let mut db_connection = match db_connection_pool
+                    .get()
+                    .context("could not get new connection from pool")
+                {
+                    Ok(db_connection) => db_connection,
+                    Err(error) => {
+                        tracing::error!(
+                    "could not get database connection while trying to update oracle's answer\n\n{:#}",
+                    error
+                );
+                        return Ok(());
+                    }
+                };
+
                 if let Err(error) = active_oracle.update_answer(&mut db_connection, answer) {
                     tracing::error!("{:#}", error);
                     return Ok(());
@@ -334,20 +355,40 @@ async fn answer_active_oracle(
             }
         };
 
-        if let Err(error) = active_oracle.update_answer_tx_hash(&mut db_connection, tx.tx_hash()) {
-            tracing::error!("{:#}", error);
-            return Ok(());
+        {
+            let mut db_connection = match db_connection_pool
+                .get()
+                .context("could not get new connection from pool")
+            {
+                Ok(db_connection) => db_connection,
+                Err(error) => {
+                    tracing::error!(
+                        "could not get database connection while trying to update oracle's answer tx hash\n\n{:#}",
+                        error
+                    );
+                    return Ok(());
+                }
+            };
+
+            if let Err(error) =
+                active_oracle.update_answer_tx_hash(&mut db_connection, tx.tx_hash())
+            {
+                tracing::error!("{:#}", error);
+                return Ok(());
+            }
         }
 
         let receipt = match tx.await {
             Ok(receipt) => receipt,
             Err(error) => {
-                tracing::error!("error while confirming answer transaction - {}", error,);
+                // we need to throw the following errors as these needs to be addressed immediately.
+                // not being able to delete the tx hash for an oracle once an answer task errors out
+                // might cause a deadlock preventing any answering task from starting in the future
 
-                // we need to throw this error as this needs to be addressed immediately.
-                // not being able to delete the tx hash for an oracle once an answer task
-                // errors out might cause a deadlock preventing any answering task from
-                // starting in the future
+                tracing::error!("error while confirming answer transaction - {}", error);
+                let mut db_connection = db_connection_pool
+                    .get()
+                    .context("could not get database connection while trying to delete oracle's answer tx hash")?;
                 active_oracle.delete_answer_tx_hash(&mut db_connection)?;
 
                 return Ok(());
@@ -373,6 +414,19 @@ async fn answer_active_oracle(
             tracing::warn!("could not determine paid amount to answer oracle");
         }
 
+        let mut db_connection = match db_connection_pool
+            .get()
+            .context("could not get new connection from pool")
+        {
+            Ok(db_connection) => db_connection,
+            Err(error) => {
+                tracing::error!(
+                        "could not get database connection while trying to update oracle's answer tx hash\n\n{:#}",
+                        error
+                    );
+                return Ok(());
+            }
+        };
         if let Err(error) = active_oracle.delete(&mut db_connection) {
             tracing::error!("could not delete oracle from database - {}", error);
             return Ok(());
@@ -392,10 +446,6 @@ async fn is_active_oracle_expired(
     let expiration = match active_oracle.expiration {
         Some(expiration) => expiration,
         None => {
-            let mut db_connection = db_connection_pool.get().context(format!(
-                "could not get database connection while trying to update oracle's expiration"
-            ))?;
-
             let expiration =
                 fetch_active_oracle_expiration(signer.clone(), active_oracle.address.0)
                     .await
@@ -403,6 +453,9 @@ async fn is_active_oracle_expired(
                         "could not fetch active oracle 0x{:x} expiration",
                         active_oracle.address.0
                     ))?;
+            let mut db_connection = db_connection_pool.get().context(format!(
+                "could not get database connection while trying to update oracle's expiration"
+            ))?;
             active_oracle.update_expiration(&mut db_connection, expiration)?;
             expiration
         }
