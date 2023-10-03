@@ -22,7 +22,42 @@
     },
     {
         "inputs": [],
+        "name": "InvalidConstraint",
+        "type": "error"
+    },
+    {
+        "inputs": [],
+        "name": "InvalidGreaterThanConstraintValue",
+        "type": "error"
+    },
+    {
+        "inputs": [],
+        "name": "InvalidLowerThanConstraintValue",
+        "type": "error"
+    },
+    {
+        "inputs": [],
+        "name": "InvalidRangeBounds",
+        "type": "error"
+    },
+    {
+        "inputs": [],
         "name": "InvalidSpecification",
+        "type": "error"
+    },
+    {
+        "inputs": [],
+        "name": "InvalidTemplateId",
+        "type": "error"
+    },
+    {
+        "inputs": [],
+        "name": "InvalidTemplateVersion",
+        "type": "error"
+    },
+    {
+        "inputs": [],
+        "name": "InvalidValues",
         "type": "error"
     },
     {
@@ -37,12 +72,17 @@
     },
     {
         "inputs": [],
+        "name": "TooSoonToFinalize",
+        "type": "error"
+    },
+    {
+        "inputs": [],
         "name": "ZeroAddressAnswerer",
         "type": "error"
     },
     {
         "inputs": [],
-        "name": "ZeroAddressKpiToken",
+        "name": "ZeroAddressKPIToken",
         "type": "error"
     },
     {
@@ -211,6 +251,19 @@
     {
         "inputs": [],
         "name": "minimumElapsedTime",
+        "outputs": [
+            {
+                "internalType": "uint256",
+                "name": "",
+                "type": "uint256"
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [],
+        "name": "result",
         "outputs": [
             {
                 "internalType": "uint256",
