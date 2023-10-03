@@ -146,10 +146,11 @@ pub async fn parse_kpi_token_creation_log(
                     expiration: kpi_token_expiration,
                 });
             }
-            Err(_) => {
+            Err(error) => {
                 tracing::error!(
-                    "could not fetch multicall data from oracle {}",
-                    oracle_address
+                    "could not fetch multicall data from oracle 0x{:x}\n\n{:#}",
+                    oracle_address,
+                    error
                 );
             }
         };
