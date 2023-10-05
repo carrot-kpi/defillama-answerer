@@ -12,34 +12,39 @@ pub async fn fetch_specification_with_retry(
     cid: &String,
 ) -> anyhow::Result<Specification> {
     let fetch = || async {
-        let response = match ipfs_http_client
+        ipfs_http_client
             .request(Method::POST, format!("/api/v0/cat?arg={cid}"))
-            .await?
+            .await
+            .map_err(|err| {
+                tracing::warn!(
+                    "could not prepare request to fetch cid {}, retrying: {:#}",
+                    cid,
+                    err
+                );
+                backoff::Error::Transient {
+                    err: anyhow::anyhow!(err),
+                    retry_after: None,
+                }
+            })?
             .send()
             .await
-            .context(format!("could not fetch cid {cid}"))
-        {
-            Ok(res) => res,
-            Err(err) => {
-                tracing::error!("{:#}", err);
-                return Err(backoff::Error::Transient {
-                    err,
+            .map_err(|err| {
+                tracing::warn!("could not fetch cid {}, retrying: {:#}", cid, err);
+                backoff::Error::Transient {
+                    err: anyhow::anyhow!(err),
                     retry_after: None,
-                });
-            }
-        };
-
-        match response.json::<Specification>().await.context(format!(
-            "could not deserialize raw response to json spec for {cid}"
-        )) {
-            Ok(specification) => Ok(specification),
-            Err(err) => {
-                tracing::error!("{:#}", err);
-                // if we can't parse the json to text, we just
-                // stop retrying
-                Err(backoff::Error::Permanent(err))
-            }
-        }
+                }
+            })?
+            .json::<Specification>()
+            .await
+            .map_err(|err| {
+                tracing::error!(
+                    "could not deserialize raw response to json spec for {}, exiting early: {:#}",
+                    cid,
+                    err
+                );
+                backoff::Error::Permanent(anyhow::anyhow!(err))
+            })
     };
 
     retry(
@@ -67,60 +72,75 @@ pub async fn pin_on_web3_storage_with_retry(
 ) -> anyhow::Result<()> {
     let pin = || async {
         // export dag from ipfs
-        let car_response = match ipfs_http_client
+        let car_response = ipfs_http_client
             .request(
                 Method::POST,
                 format!("/api/v0/dag/export?arg={cid}&progress=false"),
             )
-            .await?
+            .await
+            .map_err(|err| {
+                tracing::warn!(
+                    "could not prepare request to get car for {}, retrying: {:#}",
+                    cid,
+                    err
+                );
+                backoff::Error::Transient {
+                    err: anyhow::anyhow!(err),
+                    retry_after: None,
+                }
+            })?
             .send()
             .await
-            .context(format!("could not get car for {cid}"))
-        {
-            Ok(res) => res,
-            Err(err) => {
-                tracing::error!("{}", err);
-                return Err(backoff::Error::Transient {
-                    err,
+            .map_err(|err| {
+                tracing::warn!("could not get car for {}, retrying: {:#}", cid, err);
+                backoff::Error::Transient {
+                    err: anyhow::anyhow!(err),
                     retry_after: None,
-                });
-            }
-        };
+                }
+            })?;
 
         // upload car to web3.storage
-        let car_upload_response = match web3_storage_http_client
+        let car_upload_response = web3_storage_http_client
             .request(Method::POST, "/car")
-            .await?
+            .await.map_err(|err| {
+                tracing::warn!(
+                    "could not prepare request to upload car to web3.storage for {}, retrying: {:#}",
+                    cid,
+                    err
+                );
+                backoff::Error::Transient {
+                    err: anyhow::anyhow!(err),
+                    retry_after: None,
+                }
+            })?
             .body(Body::wrap_stream(car_response.bytes_stream()))
             .send()
-            .await
-            .context(format!("could not pin {cid} to web3.storage"))
-        {
-            Ok(res) => res,
-            Err(err) => {
-                tracing::error!("{}", err);
-                return Err(backoff::Error::Transient {
-                    err,
+            .await.map_err(|err| {
+                tracing::warn!(
+                    "could not pin {} to web3.storage, retrying: {:#}",
+                    cid,
+                    err
+                );
+                backoff::Error::Transient {
+                    err: anyhow::anyhow!(err),
                     retry_after: None,
-                });
-            }
-        };
+                }
+            })?;
 
-        let car_upload_response = match car_upload_response
+        let car_upload_response = car_upload_response
             .json::<CARUploadResponse>()
             .await
-            .context(format!(
-                "could not convert web3.storage response for {cid} to json"
-            )) {
-            Ok(res) => res,
-            Err(err) => {
-                tracing::error!("{}", err);
-                return Err(backoff::Error::Transient {
-                    err,
+            .map_err(|err| {
+                tracing::warn!(
+                    "could not convert web3.storage response for {} to json, retrying: {:#}",
+                    cid,
+                    err
+                );
+                backoff::Error::Transient {
+                    err: anyhow::anyhow!(err),
                     retry_after: None,
-                });
-            }
-        };
+                }
+            })?;
 
         if car_upload_response.cid != *cid {
             return Err(backoff::Error::Permanent(anyhow!(
@@ -137,7 +157,10 @@ pub async fn pin_on_web3_storage_with_retry(
 
     retry(
         ExponentialBackoffBuilder::new()
-            .with_max_elapsed_time(Some(Duration::from_secs(86_400)))
+            .with_max_elapsed_time(Some(
+                // retry for 10 minutes
+                Duration::from_secs(6_000),
+            ))
             .build(),
         pin,
     )
