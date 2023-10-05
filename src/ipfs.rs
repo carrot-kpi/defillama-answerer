@@ -137,7 +137,10 @@ pub async fn pin_on_web3_storage_with_retry(
 
     retry(
         ExponentialBackoffBuilder::new()
-            .with_max_elapsed_time(Some(Duration::from_secs(86_400)))
+            .with_max_elapsed_time(Some(
+                // retry for 10 minutes
+                Duration::from_secs(6_000),
+            ))
             .build(),
         pin,
     )
