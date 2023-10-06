@@ -19,10 +19,7 @@ use ethers::{
     utils,
 };
 use governor::{Quota, RateLimiter};
-use tokio::{
-    sync::{oneshot, Mutex},
-    task::JoinSet,
-};
+use tokio::sync::{oneshot, Mutex};
 use tracing::info_span;
 use tracing_futures::Instrument;
 
@@ -229,31 +226,24 @@ async fn handle_active_oracles_answering(
         tracing::info!("trying to answer {} active oracles", active_oracles_len);
     }
 
-    let mut join_set: JoinSet<Result<(), anyhow::Error>> = JoinSet::new();
+    let chain_id = context.chain_id;
     for active_oracle in active_oracles.into_iter() {
-        let chain_id = context.chain_id;
         let oracle_address = format!("0x{:x}", active_oracle.address.0);
-        join_set.spawn(
-            answer_active_oracle(
-                signer.clone(),
-                context.db_connection_pool.clone(),
-                context.defillama_http_client.clone(),
-                active_oracle,
-            )
-            .instrument(info_span!("answer", chain_id, oracle_address)),
-        );
-    }
-
-    while let Some(join_result) = join_set.join_next().await {
-        match join_result {
-            Ok(result) => {
-                if let Err(error) = result {
-                    tracing::error!("a task unexpectedly stopped with an error:\n\n{:#}", error);
-                }
-            }
-            Err(error) => {
-                tracing::error!("an error happened while joining a task:\n\n{:#}", error);
-            }
+        let oracle_address_clone = oracle_address.clone();
+        if let Err(err) = answer_active_oracle(
+            signer.clone(),
+            context.db_connection_pool.clone(),
+            context.defillama_http_client.clone(),
+            active_oracle,
+        )
+        .instrument(info_span!("answer", chain_id, oracle_address))
+        .await
+        {
+            tracing::error!(
+                "error while answering oracle {}, ADDRESS IMMEDIATELY: {:#}",
+                oracle_address_clone,
+                err
+            );
         }
     }
 
@@ -297,7 +287,7 @@ async fn answer_active_oracle(
                     }
                 };
 
-                tracing::info!("oracle is expired, skipping");
+                tracing::warn!("oracle is expired, skipping and deleting");
                 if let Err(error) = active_oracle.delete(&mut db_connection) {
                     tracing::error!("{:#}", error);
                 }
@@ -389,7 +379,7 @@ async fn answer_active_oracle(
                 let mut db_connection = db_connection_pool
                     .get()
                     .context("could not get database connection while trying to delete oracle's answer tx hash")?;
-                active_oracle.delete_answer_tx_hash(&mut db_connection)?;
+                active_oracle.delete_answer_tx_hash(&mut db_connection).context("could not delete active answer transaction hash; the oracle resolution process is now stuck, ACT IMMEDIATELY")?;
 
                 return Ok(());
             }

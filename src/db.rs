@@ -66,7 +66,7 @@ pub fn connect(url: &String) -> anyhow::Result<Pool<ConnectionManager<PgConnecti
     }
 }
 
-#[derive(FromSqlRow, AsExpression, Debug, PartialEq)]
+#[derive(FromSqlRow, AsExpression, Debug, PartialEq, Clone, Copy)]
 #[diesel(sql_type = Bytea)]
 pub struct DbAddress(pub Address);
 
@@ -92,7 +92,7 @@ impl ToSql<Bytea, Pg> for DbAddress {
     }
 }
 
-#[derive(FromSqlRow, AsExpression, Debug, PartialEq)]
+#[derive(FromSqlRow, AsExpression, Debug, PartialEq, Clone, Copy)]
 #[diesel(sql_type = Bytea)]
 pub struct DbTxHash(pub H256);
 

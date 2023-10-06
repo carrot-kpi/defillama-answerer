@@ -60,19 +60,21 @@ impl ActiveOracle {
         connection: &mut PgConnection,
         answer_tx_hash: H256,
     ) -> anyhow::Result<()> {
-        diesel::update(active_oracles::dsl::active_oracles)
-            .set(active_oracles::dsl::answer_tx_hash.eq(DbTxHash(answer_tx_hash)))
-            .execute(connection)
-            .context(format!(
-                "could not update active oracle 0x{:x} answer tx hash",
-                self.address.0
-            ))?;
+        let sql =
+            diesel::update(active_oracles::dsl::active_oracles.find((self.address, self.chain_id)))
+                .set(active_oracles::dsl::answer_tx_hash.eq(DbTxHash(answer_tx_hash)))
+                .execute(connection)
+                .context(format!(
+                    "could not update active oracle 0x{:x} answer tx hash",
+                    self.address.0
+                ))?;
+        println!("{}", sql);
         self.answer_tx_hash = Some(DbTxHash(answer_tx_hash));
         Ok(())
     }
 
     pub fn delete_answer_tx_hash(&mut self, connection: &mut PgConnection) -> anyhow::Result<()> {
-        diesel::update(active_oracles::dsl::active_oracles)
+        diesel::update(active_oracles::dsl::active_oracles.find((self.address, self.chain_id)))
             .set(active_oracles::dsl::answer_tx_hash.eq(None::<DbTxHash>))
             .execute(connection)
             .context(format!(
@@ -88,7 +90,7 @@ impl ActiveOracle {
         connection: &mut PgConnection,
         answer: U256,
     ) -> anyhow::Result<()> {
-        diesel::update(active_oracles::dsl::active_oracles)
+        diesel::update(active_oracles::dsl::active_oracles.find((self.address, self.chain_id)))
             .set(active_oracles::dsl::answer.eq(DbU256(answer)))
             .execute(connection)
             .context(format!(
@@ -100,7 +102,7 @@ impl ActiveOracle {
     }
 
     pub fn delete_answer(&mut self, connection: &mut PgConnection) -> anyhow::Result<()> {
-        diesel::update(active_oracles::dsl::active_oracles)
+        diesel::update(active_oracles::dsl::active_oracles.find((self.address, self.chain_id)))
             .set(active_oracles::dsl::answer.eq(None::<DbU256>))
             .execute(connection)
             .context(format!(
@@ -116,7 +118,7 @@ impl ActiveOracle {
         connection: &mut PgConnection,
         expiration: SystemTime,
     ) -> anyhow::Result<()> {
-        diesel::update(active_oracles::dsl::active_oracles)
+        diesel::update(active_oracles::dsl::active_oracles.find((self.address, self.chain_id)))
             .set(active_oracles::dsl::expiration.eq(Some(expiration)))
             .execute(connection)
             .context(format!(
