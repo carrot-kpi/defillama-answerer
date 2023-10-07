@@ -55,7 +55,7 @@ impl<'a> Validate<'a, TvlPayload> for TvlHandler {
             Ok(_) => Ok(true),
             Err(error) => {
                 tracing::error!(
-                    "error fetching tvl from defillama for protocol {} - {:#}",
+                    "error fetching tvl from defillama for protocol {}: {:#}",
                     payload.protocol,
                     error
                 );

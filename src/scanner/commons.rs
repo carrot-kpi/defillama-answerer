@@ -149,7 +149,7 @@ pub async fn parse_kpi_token_creation_log(
             }
             Err(error) => {
                 tracing::error!(
-                    "could not fetch multicall data from oracle 0x{:x}\n\n{:#}",
+                    "could not fetch multicall data from oracle 0x{:x}: {:#}",
                     oracle_address,
                     error
                 );
@@ -188,12 +188,12 @@ pub async fn acknowledge_active_oracles(
         match join_result {
             Ok(result) => {
                 if let Err(error) = result {
-                    tracing::error!("an active oracle acknowledgement task unexpectedly stopped with an error:\n\n{:#}", error);
+                    tracing::error!("an active oracle acknowledgement task unexpectedly stopped with an error: {:#}", error);
                 }
             }
             Err(error) => {
                 tracing::error!(
-                    "an unexpected error happened while joining a task:\n\n{:#}",
+                    "an unexpected error happened while joining a task: {:#}",
                     error
                 );
             }

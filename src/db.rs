@@ -35,7 +35,7 @@ pub fn connect(url: &String) -> anyhow::Result<Pool<ConnectionManager<PgConnecti
             let database = database.as_str();
             let username = parsed_url.username();
             tracing::error!(
-                "error connecting to database {}, trying to create it:\n\n{:#}",
+                "error connecting to database {}, trying to create it: {:#}",
                 database,
                 error
             );

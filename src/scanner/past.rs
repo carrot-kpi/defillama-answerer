@@ -54,13 +54,14 @@ pub async fn scan<'a>(
             });
     drop(db_connection);
 
-    let mut from_block = checkpoint_block.unwrap_or(context.factory_config.deployment_block);
-    let full_range = block_number - from_block;
+    let initial_block = checkpoint_block.unwrap_or(context.factory_config.deployment_block);
+    let mut from_block = initial_block;
+    let full_range = block_number - initial_block;
     let chunk_size = context.logs_blocks_range.unwrap_or(DEFAULT_LOGS_CHUNK_SIZE);
 
     tracing::info!(
         "scanning {} past blocks {} blocks at a time, starting from {}",
-        block_number - from_block,
+        full_range,
         chunk_size,
         block_number
     );
@@ -90,7 +91,7 @@ pub async fn scan<'a>(
                 .await
                 .map_err(|err| backoff::Error::Transient {
                     err: anyhow!(
-                        "error fetching logs from block {} to {}, retrying with exponential backoff: {:#}",
+                        "error fetching logs from block {} to {}: {:#}",
                         from_block,
                         to_block,
                         err
@@ -110,7 +111,7 @@ pub async fn scan<'a>(
             Ok(logs) => logs,
             Err(error) => {
                 tracing::error!(
-                    "error fetching logs from block {} to {}, retrying: {:#}",
+                    "error fetching logs from block {} to {}: {:#}",
                     from_block,
                     to_block,
                     error
@@ -134,9 +135,7 @@ pub async fn scan<'a>(
                 from_block,
                 to_block,
                 oracles_data_len,
-                ((to_block as f32 - context.factory_config.deployment_block as f32)
-                    / full_range as f32)
-                    * 100f32
+                ((to_block as f32 - initial_block as f32) / full_range as f32) * 100f32
             );
         }
 
@@ -157,7 +156,7 @@ pub async fn scan<'a>(
         if let Err(error) =
             models::Checkpoint::update(database_connection, context.chain_id, to_block as i64)
         {
-            tracing::error!("could not update snapshot block number - {:#}", error);
+            tracing::error!("could not update snapshot block number: {:#}", error);
         }
 
         if to_block == block_number {

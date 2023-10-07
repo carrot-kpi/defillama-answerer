@@ -66,7 +66,9 @@ If the config was set up correctly, at this point you should see the daemon
 running smoothly.
 
 An additional env variable `LOG_LEVEL` can be set to regulate which logs will be
-shown. Its value can be one of `trace`, `debug`, `info`, `warn` or `error`.
+shown. Its value can be one of `trace`, `debug`, `info`, `warn` or `error`. It's
+also possible to hide logs from `ethers` by setting `RUST_LOG` to
+`none,defillama-answerer=info`
 
 ## Testing with a local template playground
 
@@ -93,8 +95,10 @@ case. In particular:
   terminal followed by a
   `INSERT INTO checkpoints (chain_id, block_number) VALUES (<CHAIN_ID>, <BLOCK_NUMBER>) ON CONFLICT (chain_id) DO UPDATE SET block_number = <BLOCK_NUMBER>;`
   (remember the ending semicolon) in the Postgres prompt.
-- It is also possible to run the `answerer` in `dev` mode setting the `dev_mode` configuration property to `true` in the `.config.yaml` file.
-  By doing this, the indexing of previous blocks will be disabled, while the index will remain enabled for any future blocks.
+- It is also possible to run the `answerer` in `dev` mode setting the `dev_mode`
+  configuration property to `true` in the `.config.yaml` file. By doing this,
+  the indexing of previous blocks will be disabled, while the index will remain
+  enabled for any future blocks.
 - Local nodes such as Ganache work by default in "automining" mode, meaning that
   no new block is produced unless a transaction is processed or unless manually
   triggered. This is a problem because the answerer reacts on new block events

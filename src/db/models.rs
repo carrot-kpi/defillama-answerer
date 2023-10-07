@@ -60,15 +60,13 @@ impl ActiveOracle {
         connection: &mut PgConnection,
         answer_tx_hash: H256,
     ) -> anyhow::Result<()> {
-        let sql =
-            diesel::update(active_oracles::dsl::active_oracles.find((self.address, self.chain_id)))
-                .set(active_oracles::dsl::answer_tx_hash.eq(DbTxHash(answer_tx_hash)))
-                .execute(connection)
-                .context(format!(
-                    "could not update active oracle 0x{:x} answer tx hash",
-                    self.address.0
-                ))?;
-        println!("{}", sql);
+        diesel::update(active_oracles::dsl::active_oracles.find((self.address, self.chain_id)))
+            .set(active_oracles::dsl::answer_tx_hash.eq(DbTxHash(answer_tx_hash)))
+            .execute(connection)
+            .context(format!(
+                "could not update active oracle 0x{:x} answer tx hash",
+                self.address.0
+            ))?;
         self.answer_tx_hash = Some(DbTxHash(answer_tx_hash));
         Ok(())
     }
