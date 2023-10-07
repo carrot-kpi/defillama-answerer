@@ -21,7 +21,7 @@ pub async fn scan<'a>(
     sender: oneshot::Sender<bool>,
     context: Arc<ChainExecutionContext>,
 ) -> anyhow::Result<()> {
-    let signer = get_signer(
+    let mut signer = get_signer(
         context.ws_rpc_endpoint.clone(),
         context.answerer_private_key.clone(),
         context.chain_id,
@@ -90,12 +90,7 @@ pub async fn scan<'a>(
                 .get_logs(&filter)
                 .await
                 .map_err(|err| backoff::Error::Transient {
-                    err: anyhow!(
-                        "error fetching logs from block {} to {}: {:#}",
-                        from_block,
-                        to_block,
-                        err
-                    ),
+                    err: anyhow!(err),
                     retry_after: None,
                 })
         };
@@ -111,11 +106,24 @@ pub async fn scan<'a>(
             Ok(logs) => logs,
             Err(error) => {
                 tracing::error!(
-                    "error fetching logs from block {} to {}: {:#}",
+                    "error fetching logs from block {} to {}, forcing reconnection: {:#}",
                     from_block,
                     to_block,
                     error
                 );
+                signer = match get_signer(
+                    context.ws_rpc_endpoint.clone(),
+                    context.answerer_private_key.clone(),
+                    context.chain_id,
+                )
+                .await
+                {
+                    Ok(signer) => signer,
+                    Err(err) => {
+                        tracing::error!("error while forcing signer reconnection: {:#}", err);
+                        continue;
+                    }
+                };
                 continue;
             }
         };
