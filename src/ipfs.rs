@@ -17,7 +17,7 @@ pub async fn fetch_specification_with_retry(
             .await
             .map_err(|err| {
                 tracing::warn!(
-                    "could not prepare request to fetch cid {}, retrying: {:#}",
+                    "could not prepare request to fetch cid {}: {:#}",
                     cid,
                     err
                 );
@@ -29,7 +29,7 @@ pub async fn fetch_specification_with_retry(
             .send()
             .await
             .map_err(|err| {
-                tracing::warn!("could not fetch cid {}, retrying: {:#}", cid, err);
+                tracing::warn!("could not fetch cid {}: {:#}", cid, err);
                 backoff::Error::Transient {
                     err: anyhow::anyhow!(err),
                     retry_after: None,
@@ -80,7 +80,7 @@ pub async fn pin_on_web3_storage_with_retry(
             .await
             .map_err(|err| {
                 tracing::warn!(
-                    "could not prepare request to get car for {}, retrying: {:#}",
+                    "could not prepare request to get car for {}: {:#}",
                     cid,
                     err
                 );
@@ -92,7 +92,7 @@ pub async fn pin_on_web3_storage_with_retry(
             .send()
             .await
             .map_err(|err| {
-                tracing::warn!("could not get car for {}, retrying: {:#}", cid, err);
+                tracing::warn!("could not get car for {}: {:#}", cid, err);
                 backoff::Error::Transient {
                     err: anyhow::anyhow!(err),
                     retry_after: None,
@@ -104,7 +104,7 @@ pub async fn pin_on_web3_storage_with_retry(
             .request(Method::POST, "/car")
             .await.map_err(|err| {
                 tracing::warn!(
-                    "could not prepare request to upload car to web3.storage for {}, retrying: {:#}",
+                    "could not prepare request to upload car to web3.storage for {}: {:#}",
                     cid,
                     err
                 );
@@ -117,7 +117,7 @@ pub async fn pin_on_web3_storage_with_retry(
             .send()
             .await.map_err(|err| {
                 tracing::warn!(
-                    "could not pin {} to web3.storage, retrying: {:#}",
+                    "could not pin {} to web3.storage: {:#}",
                     cid,
                     err
                 );
@@ -132,7 +132,7 @@ pub async fn pin_on_web3_storage_with_retry(
             .await
             .map_err(|err| {
                 tracing::warn!(
-                    "could not convert web3.storage response for {} to json, retrying: {:#}",
+                    "could not convert web3.storage response for {} to json: {:#}",
                     cid,
                     err
                 );

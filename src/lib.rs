@@ -157,12 +157,12 @@ pub async fn main() {
         match join_result {
             Ok(result) => {
                 if let Err(error) = result {
-                    tracing::error!("a task unexpectedly stopped with an error:\n\n{:#}", error);
+                    tracing::error!("a task unexpectedly stopped with an error: {:#}", error);
                     exit(1);
                 }
             }
             Err(error) => {
-                tracing::error!("an error happened while joining a task:\n\n{:#}", error);
+                tracing::error!("an error happened while joining a task: {:#}", error);
                 exit(1);
             }
         }

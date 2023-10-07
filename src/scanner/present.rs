@@ -95,7 +95,7 @@ pub async fn scan(
                     context.chain_id,
                     block_number.as_u32() as i64,
                 ) {
-                    tracing::error!("could not update snapshot block number - {:#}", error);
+                    tracing::error!("could not update snapshot block number: {:#}", error);
                 }
             }
         }
@@ -116,7 +116,7 @@ async fn message_receiver(
             }
         }
         Err(error) => {
-            tracing::error!("error while receiving control over snapshot block number update from past indexer\n\n{:#}", error);
+            tracing::error!("error while receiving control over snapshot block number update from past indexer: {:#}", error);
         }
     }
 }
@@ -139,7 +139,7 @@ async fn handle_new_active_oracles(
             .await
             .map_err(|err| backoff::Error::Transient {
                 err: anyhow!(
-                    "error fetching logs from block {}, retrying with exponential backoff: {:#}",
+                    "error fetching logs from block {}: {:#}",
                     block_number,
                     err
                 ),
@@ -158,7 +158,7 @@ async fn handle_new_active_oracles(
         Ok(logs) => logs,
         Err(error) => {
             tracing::error!(
-                "could not get kpi token creation logs for block {} - {}",
+                "could not get kpi token creation logs for block {}: {:#}",
                 block_number,
                 error
             );
@@ -176,7 +176,7 @@ async fn handle_new_active_oracles(
 
     if oracles_data.len() > 0 {
         tracing::info!(
-            "block {} - detected {} new active oracle(s)",
+            "block {}: detected {} new active oracle(s)",
             block_number,
             oracles_data.len()
         );
@@ -200,7 +200,7 @@ async fn handle_active_oracles_answering(
     let mut db_connection = match context.db_connection_pool.get() {
         Ok(connection) => connection,
         Err(error) => {
-            tracing::error!("could not get new connection from pool - {:#}", error);
+            tracing::error!("could not get new connection from pool: {:#}", error);
             return Ok(());
         }
     };
@@ -212,7 +212,7 @@ async fn handle_active_oracles_answering(
         Ok(oracles) => oracles,
         Err(error) => {
             tracing::error!(
-                "could not get currently active oracles in chain with id {} - {:#}",
+                "could not get currently active oracles in chain with id {}: {:#}",
                 context.chain_id,
                 error
             );
@@ -280,7 +280,7 @@ async fn answer_active_oracle(
                     Ok(db_connection) => db_connection,
                     Err(error) => {
                         tracing::error!(
-                    "could not get database connection while trying to update oracle's answer tx hash\n\n{:#}",
+                    "could not get database connection while trying to update oracle's answer tx hash: {:#}",
                     error
                 );
                         return Ok(());
@@ -295,7 +295,7 @@ async fn answer_active_oracle(
             }
         }
         Err(error) => {
-            tracing::error!("could not get expiration status for oracle\n\n{:#}", error);
+            tracing::error!("could not get expiration status for oracle: {:#}", error);
             return Ok(());
         }
     }
@@ -316,7 +316,7 @@ async fn answer_active_oracle(
                     Ok(db_connection) => db_connection,
                     Err(error) => {
                         tracing::error!(
-                    "could not get database connection while trying to update oracle's answer\n\n{:#}",
+                    "could not get database connection while trying to update oracle's answer: {:#}",
                     error
                 );
                         return Ok(());
@@ -340,7 +340,7 @@ async fn answer_active_oracle(
         let tx = match tx.send().await {
             Ok(tx) => tx,
             Err(error) => {
-                tracing::error!("error while sending answer transaction - {}", error,);
+                tracing::error!("error while sending answer transaction: {:#}", error);
                 return Ok(());
             }
         };
@@ -353,7 +353,7 @@ async fn answer_active_oracle(
                 Ok(db_connection) => db_connection,
                 Err(error) => {
                     tracing::error!(
-                        "could not get database connection while trying to update oracle's answer tx hash\n\n{:#}",
+                        "could not get database connection while trying to update oracle's answer tx hash: {:#}",
                         error
                     );
                     return Ok(());
@@ -375,7 +375,7 @@ async fn answer_active_oracle(
                 // not being able to delete the tx hash for an oracle once an answer task errors out
                 // might cause a deadlock preventing any answering task from starting in the future
 
-                tracing::error!("error while confirming answer transaction - {}", error);
+                tracing::error!("error while confirming answer transaction: {:#}", error);
                 let mut db_connection = db_connection_pool
                     .get()
                     .context("could not get database connection while trying to delete oracle's answer tx hash")?;
@@ -394,7 +394,7 @@ async fn answer_active_oracle(
                 let formatted = match utils::format_units(gas_used * effective_gas_price, 18) {
                     Ok(formatted) => formatted,
                     Err(error) => {
-                        tracing::error!("could not format units for raw fee {} - {:#}", fee, error);
+                        tracing::error!("could not format units for raw fee {}: {:#}", fee, error);
                         return Ok(());
                     }
                 };
@@ -411,14 +411,14 @@ async fn answer_active_oracle(
             Ok(db_connection) => db_connection,
             Err(error) => {
                 tracing::error!(
-                        "could not get database connection while trying to update oracle's answer tx hash\n\n{:#}",
+                        "could not get database connection while trying to update oracle's answer tx hash: {:#}",
                         error
                     );
                 return Ok(());
             }
         };
         if let Err(error) = active_oracle.delete(&mut db_connection) {
-            tracing::error!("could not delete oracle from database - {}", error);
+            tracing::error!("could not delete oracle from database: {:#}", error);
             return Ok(());
         }
 
