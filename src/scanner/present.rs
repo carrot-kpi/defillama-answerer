@@ -332,7 +332,7 @@ async fn answer_active_oracle(
 
         tracing::info!("answering with value {}", answer);
         let oracle = DefiLlamaOracle::new(active_oracle.address.0, signer);
-        let call = oracle.finalize(answer);
+        let call = oracle.finalize(answer).from(oracle.client().address());
         let tx = match call.send().await {
             Ok(tx) => tx,
             Err(error) => {
