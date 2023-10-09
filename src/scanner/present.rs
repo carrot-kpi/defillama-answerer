@@ -333,11 +333,15 @@ async fn answer_active_oracle(
         tracing::info!("answering with value {}", answer);
         let oracle = DefiLlamaOracle::new(active_oracle.address.0, signer.clone());
         let mut call = oracle.finalize(answer);
-        let tx = signer
-            .fill_transaction(&mut call.tx, None)
-            .await
-            .context("could not fill call transaction")?;
-        tracing::info!("filled call transaction: {:?}", tx);
+
+        match signer.fill_transaction(&mut call.tx, None).await {
+            Ok(()) => {}
+            Err(error) => {
+                tracing::error!("could not fill answer call: {:#}", error);
+                return Ok(());
+            }
+        };
+
         let tx = match call.send().await {
             Ok(tx) => tx,
             Err(error) => {
