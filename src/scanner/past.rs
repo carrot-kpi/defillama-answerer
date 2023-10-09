@@ -61,6 +61,7 @@ pub async fn scan<'a>(
 
     if full_range == 0 {
         tracing::info!("no past blocks to scan, skipping");
+        yield_checkpoint_updates_ownership(sender)?;
         return Ok(());
     }
 
@@ -178,19 +179,20 @@ pub async fn scan<'a>(
         from_block = to_block + 1;
     }
 
-    match sender.send(true) {
-        Err(error) => {
-            return Err(anyhow::anyhow!(
-                "could not send checkpoint updates ownership message to present indexer - {:#}",
-                error
-            ))
-        }
-        _ => {}
-    };
+    yield_checkpoint_updates_ownership(sender)?;
 
     tracing::info!(
         "finished scanning past blocks, checkpoint updates ownership transferred to present indexer"
     );
 
     Ok(())
+}
+
+fn yield_checkpoint_updates_ownership(sender: oneshot::Sender<bool>) -> anyhow::Result<()> {
+    sender.send(true).map_err(|err| {
+        anyhow::anyhow!(
+            "could not send checkpoint updates ownership message to present indexer: {:#}",
+            err
+        )
+    })
 }
