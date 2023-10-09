@@ -59,6 +59,11 @@ pub async fn scan<'a>(
     let full_range = block_number - initial_block;
     let chunk_size = context.logs_blocks_range.unwrap_or(DEFAULT_LOGS_CHUNK_SIZE);
 
+    if full_range == 0 {
+        tracing::info!("no past blocks to scan, skipping");
+        return Ok(());
+    }
+
     tracing::info!(
         "scanning {} past blocks {} blocks at a time, starting from {}",
         full_range,
