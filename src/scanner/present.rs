@@ -138,11 +138,7 @@ async fn handle_new_active_oracles(
             .get_logs(&filter)
             .await
             .map_err(|err| backoff::Error::Transient {
-                err: anyhow!(
-                    "error fetching logs from block {}: {:#}",
-                    block_number,
-                    err
-                ),
+                err: anyhow!("error fetching logs from block {}: {:#}", block_number, err),
                 retry_after: None,
             })
     };
@@ -336,11 +332,15 @@ async fn answer_active_oracle(
 
         tracing::info!("answering with value {}", answer);
         let oracle = DefiLlamaOracle::new(active_oracle.address.0, signer);
-        let tx = oracle.finalize(answer);
-        let tx = match tx.send().await {
+        let call = oracle.finalize(answer);
+        let tx = match call.send().await {
             Ok(tx) => tx,
             Err(error) => {
-                tracing::error!("error while sending answer transaction: {:#}", error);
+                tracing::error!(
+                    "error while submitting answer transaction {:?}: {:#}",
+                    call.tx,
+                    error
+                );
                 return Ok(());
             }
         };
@@ -368,6 +368,7 @@ async fn answer_active_oracle(
             }
         }
 
+        let debug_tx = format!("{:?}", tx);
         let receipt = match tx.await {
             Ok(receipt) => receipt,
             Err(error) => {
@@ -375,7 +376,11 @@ async fn answer_active_oracle(
                 // not being able to delete the tx hash for an oracle once an answer task errors out
                 // might cause a deadlock preventing any answering task from starting in the future
 
-                tracing::error!("error while confirming answer transaction: {:#}", error);
+                tracing::error!(
+                    "error while confirming answer transaction {}: {:#}",
+                    debug_tx,
+                    error
+                );
                 let mut db_connection = db_connection_pool
                     .get()
                     .context("could not get database connection while trying to delete oracle's answer tx hash")?;
