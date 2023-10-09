@@ -145,7 +145,7 @@ async fn handle_new_active_oracles(
 
     let kpi_token_creation_logs = match backoff::future::retry(
         ExponentialBackoffBuilder::new()
-            .with_max_elapsed_time(Some(Duration::from_secs(8)))
+            .with_max_elapsed_time(Some(Duration::from_secs(20)))
             .build(),
         fetch_logs,
     )
