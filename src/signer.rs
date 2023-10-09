@@ -18,7 +18,7 @@ pub async fn get_signer(
         .parse::<LocalWallet>()
         .context("could not parse private key to local wallet")?;
 
-    let provider = Provider::<Ws>::connect_with_reconnects((*url).clone(), usize::MAX)
+    let provider = Provider::<Ws>::connect((*url).clone())
         .await
         .context(format!(
             "could not get ws provider for chain {expected_chain_id}"
