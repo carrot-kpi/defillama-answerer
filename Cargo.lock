@@ -691,7 +691,7 @@ checksum = "63dfa964fe2a66f3fde91fc70b267fe193d822c7e603e2a675a49a7f46ad3f49"
 
 [[package]]
 name = "defillama-answerer"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "anyhow",
  "async-trait",
