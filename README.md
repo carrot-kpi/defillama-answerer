@@ -67,7 +67,7 @@ running smoothly.
 
 An additional env variable `LOG_LEVEL` can be set to regulate which logs will be
 shown. Its value can be one of `trace`, `debug`, `info`, `warn` or `error`. It's
-also possible to hide logs from `ethers` by setting `RUST_LOG` to
+also possible to hide logs from `ethers` by setting `LOG_LEVEL` to
 `none,defillama-answerer=info`
 
 ## Testing with a local template playground
