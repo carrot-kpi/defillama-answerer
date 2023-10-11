@@ -35,11 +35,16 @@ use crate::{
     specification::{self},
 };
 
+const DEFAULT_BLOCKS_POLLING_INTERVAL_SECONDS: u64 = 60;
+
 pub async fn scan(
     receiver: oneshot::Receiver<bool>,
     context: Arc<ChainExecutionContext>,
 ) -> anyhow::Result<()> {
     let update_snapshot_block_number = Arc::new(Mutex::new(false));
+    let blocks_polling_interval_seconds = context
+        .blocks_polling_interval_seconds
+        .unwrap_or(DEFAULT_BLOCKS_POLLING_INTERVAL_SECONDS);
 
     tokio::spawn(
         message_receiver(receiver, update_snapshot_block_number.clone())
@@ -54,18 +59,20 @@ pub async fn scan(
         rate_limiter.until_ready().await;
 
         let signer = get_signer(
-            context.ws_rpc_endpoint.clone(),
+            context.rpc_endpoint.clone(),
             context.answerer_private_key.clone(),
             context.chain_id,
         )
         .await?;
 
         let mut stream = match signer
-            .subscribe_blocks()
+            .watch_blocks()
             .await
             .context("could not watch for blocks")
         {
-            Ok(stream) => stream,
+            Ok(watcher) => watcher
+                .interval(Duration::from_secs(blocks_polling_interval_seconds))
+                .stream(),
             Err(error) => {
                 tracing::error!("{:#}", error);
                 continue;
@@ -74,7 +81,25 @@ pub async fn scan(
 
         tracing::info!("watching blocks");
 
-        while let Some(block) = stream.next().await {
+        while let Some(block_hash) = stream.next().await {
+            let block = match signer.get_block(block_hash).await {
+                Ok(block) => {
+                    if let None = block {
+                        tracing::error!(
+                            "could not fetch block with hash {}: no error but block is none",
+                            block_hash
+                        );
+                        continue;
+                    } else {
+                        block.unwrap()
+                    }
+                }
+                Err(err) => {
+                    tracing::error!("could not fetch block with hash {}: {:#}", block_hash, err);
+                    continue;
+                }
+            };
+
             let block_number = block.number.unwrap();
 
             handle_new_active_oracles(signer.clone(), block, context.clone()).await;
