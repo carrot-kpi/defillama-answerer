@@ -19,8 +19,9 @@ pub struct ContractConfig {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ChainConfig {
     pub answerer_private_key: String,
-    pub ws_rpc_endpoint: String,
+    pub rpc_endpoint: String,
     pub logs_blocks_range: Option<u64>,
+    pub blocks_polling_interval_seconds: Option<u64>,
     pub template_id: u64,
     pub factory: ContractConfig,
 }
@@ -52,8 +53,9 @@ pub struct Config {
 
 pub struct ChainExecutionContext {
     pub chain_id: u64,
-    pub ws_rpc_endpoint: Arc<String>,
+    pub rpc_endpoint: Arc<String>,
     pub logs_blocks_range: Option<u64>,
+    pub blocks_polling_interval_seconds: Option<u64>,
     pub template_id: u64,
     pub answerer_private_key: Arc<String>,
     pub ipfs_http_client: Arc<HttpClient>,

@@ -118,18 +118,19 @@ pub async fn main() {
 
     let mut join_set = JoinSet::new();
     for (chain_id, chain_config) in config.chain_configs.into_iter() {
-        let ws_rpc_endpoint = chain_config.ws_rpc_endpoint.as_str();
+        let rpc_endpoint = chain_config.rpc_endpoint.as_str();
 
         tracing::info!(
-            "setting up listener for chain with id {} with ws rpc endpoint: {}",
+            "setting up listener for chain with id {} with rpc endpoint: {}",
             chain_id,
-            ws_rpc_endpoint
+            rpc_endpoint
         );
 
         let execution_context = Arc::new(ChainExecutionContext {
             chain_id,
-            ws_rpc_endpoint: Arc::new(chain_config.ws_rpc_endpoint),
+            rpc_endpoint: Arc::new(chain_config.rpc_endpoint),
             logs_blocks_range: chain_config.logs_blocks_range,
+            blocks_polling_interval_seconds: chain_config.blocks_polling_interval_seconds,
             template_id: chain_config.template_id,
             answerer_private_key: Arc::new(chain_config.answerer_private_key),
             ipfs_http_client: ipfs_http_client.clone(),
