@@ -10,6 +10,10 @@ pub mod specification;
 use std::{env, num::NonZeroU32, ops::Deref, process::exit, sync::Arc, time::Duration};
 
 use anyhow::Context;
+use diesel::{
+    r2d2::{ConnectionManager, Pool},
+    PgConnection,
+};
 use ethers::{
     contract::EthEvent,
     middleware::SignerMiddleware,
@@ -19,6 +23,9 @@ use ethers::{
 };
 use governor::{Quota, RateLimiter};
 use mibs::{chain_config::ChainConfig, MibsBuilder};
+use tokio::task::JoinSet;
+use tracing::info_span;
+use tracing_futures::Instrument;
 use tracing_subscriber::{filter::LevelFilter, EnvFilter, FmtSubscriber};
 
 use crate::{
@@ -49,7 +56,7 @@ fn setup_logging() -> anyhow::Result<()> {
     tracing::subscriber::set_global_default(subscriber).context("tracing initialization failed")
 }
 
-pub async fn main() -> anyhow::Result<()> {
+pub async fn main() {
     if let Err(error) = setup_logging().context("could not initialize logging system") {
         tracing::error!("{:#}", error);
         exit(1);
@@ -147,53 +154,31 @@ pub async fn main() -> anyhow::Result<()> {
             rpc_endpoint
         );
 
-        let mut db_connection = db_connection_pool
-            .clone()
-            .get()
-            .context("could not get database connection")?;
-        let checkpoint_block = models::Checkpoint::get_for_chain_id(&mut db_connection, chain_id)
-            .context("could not get checkpoint block")?
-            .map(|checkpoint| {
-                // realistically, the following should never happen
-                u64::try_from(checkpoint.block_number).expect(
-                    format!(
-                        "could not convert checkpoint block number {} to unsigned integer",
-                        checkpoint.block_number
-                    )
-                    .as_str(),
-                )
-            })
-            .unwrap_or(chain_config.factory.deployment_block);
-        drop(db_connection);
-
-        let rpc_url = chain_config.rpc_endpoint;
-        let answerer_wallet = chain_config
-            .answerer_private_key
-            .parse::<LocalWallet>()
-            .context("could not parse private key to local wallet")?;
-
-        let provider = Arc::new(
-            Provider::<Http>::try_from(rpc_url.clone())
-                .context(format!("could not get provider for chain {chain_id}"))?,
+        let checkpoint_block_number = get_checkpoint_block_number(
+            chain_id,
+            db_connection_pool.clone(),
+            chain_config.factory.deployment_block,
         );
 
-        let signer = Arc::new(SignerMiddleware::new(
-            Provider::<Http>::try_from(rpc_url)
-                .context(format!("could not get signer for chain {chain_id}"))?,
-            answerer_wallet.with_chain_id(chain_id),
+        let rpc_url = chain_config.rpc_endpoint;
+        let provider = Arc::new(get_provider(chain_id, rpc_url.clone()));
+        let signer = Arc::new(get_signer(
+            chain_id,
+            rpc_url,
+            chain_config.answerer_private_key,
         ));
 
         let chain_config_builder = ChainConfig::builder(
             chain_id,
-            provider.clone(),
-            checkpoint_block,
+            provider,
+            checkpoint_block_number,
             Filter::new()
                 .address(vec![chain_config.factory.address])
                 .event(CreateTokenFilter::abi_signature().deref()),
             Listener::new(
                 chain_id,
                 chain_config.template_id,
-                signer.clone(),
+                signer,
                 db_connection_pool.clone(),
                 ipfs_http_client.clone(),
                 defillama_http_client.clone(),
@@ -212,9 +197,102 @@ pub async fn main() -> anyhow::Result<()> {
         mibs_builder = mibs_builder.chain_config(chain_config_builder.build());
     }
 
-    mibs_builder
-        .build()
-        .scan()
-        .await
-        .map_err(|err| anyhow::anyhow!(err))
+    let mut join_set = JoinSet::new();
+    join_set.spawn(
+        async {
+            mibs_builder
+                .build()
+                .scan()
+                .await
+                .map_err(|err| anyhow::anyhow!(err))
+        }
+        .instrument(info_span!("mibs")),
+    );
+    join_set.spawn(
+        api::serve(
+            config.api.host,
+            config.api.port,
+            defillama_http_client.clone(),
+        )
+        .instrument(info_span!("api-server")),
+    );
+
+    // wait forever unless some task stops with an error
+    while let Some(join_result) = join_set.join_next().await {
+        match join_result {
+            Ok(result) => {
+                if let Err(error) = result {
+                    tracing::error!("a task unexpectedly stopped with an error: {:#}", error);
+                    exit(1);
+                }
+            }
+            Err(error) => {
+                tracing::error!("an error happened while joining a task: {:#}", error);
+                exit(1);
+            }
+        }
+    }
+}
+
+fn get_checkpoint_block_number(
+    chain_id: u64,
+    db_connection_pool: Pool<ConnectionManager<PgConnection>>,
+    factory_deployment_block: u64,
+) -> u64 {
+    let mut db_connection = match db_connection_pool.get() {
+        Ok(conn) => conn,
+        Err(err) => {
+            tracing::error!("could not get database connection to get checkpoint block: {err:#}");
+            exit(1);
+        }
+    };
+
+    let checkpoint_block = match models::Checkpoint::get_for_chain_id(&mut db_connection, chain_id)
+    {
+        Ok(checkpoint_block) => checkpoint_block,
+        Err(err) => {
+            tracing::error!("could not get checkpoint block: {err:#}");
+            exit(1);
+        }
+    };
+
+    checkpoint_block
+        .map(|checkpoint| {
+            // realistically, the following should never happen
+            u64::try_from(checkpoint.block_number).expect(
+                format!(
+                    "could not convert checkpoint block number {} to unsigned integer",
+                    checkpoint.block_number
+                )
+                .as_str(),
+            )
+        })
+        .unwrap_or(factory_deployment_block)
+}
+
+fn get_provider(chain_id: u64, rpc_url: String) -> Provider<Http> {
+    match Provider::<Http>::try_from(rpc_url.clone()) {
+        Ok(provider) => provider,
+        Err(err) => {
+            tracing::error!("could not get provider for chain {chain_id}: {err:#}");
+            exit(1);
+        }
+    }
+}
+
+fn get_signer(
+    chain_id: u64,
+    rpc_url: String,
+    answerer_private_key: String,
+) -> SignerMiddleware<Provider<Http>, LocalWallet> {
+    let answerer_wallet = match answerer_private_key.parse::<LocalWallet>().context("t") {
+        Ok(wallet) => wallet,
+        Err(err) => {
+            tracing::error!("could not parse private key to local wallet: {err:#}");
+            exit(1);
+        }
+    };
+
+    let provider = get_provider(chain_id, rpc_url.clone());
+    SignerMiddleware::new(provider, answerer_wallet.with_chain_id(chain_id))
 }
