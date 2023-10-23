@@ -1,224 +1,257 @@
 use std::{
-    num::NonZeroU32,
-    ops::Deref,
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use anyhow::{anyhow, Context};
-use backoff::ExponentialBackoffBuilder;
+use anyhow::Context;
 use diesel::{
+    prelude::*,
     r2d2::{ConnectionManager, Pool},
-    PgConnection,
 };
 use ethers::{
-    abi::Address,
-    contract::EthEvent,
-    providers::{Middleware, StreamExt},
-    types::{Block, Filter, H256},
+    abi::RawLog,
+    contract::{EthLogDecode, Multicall},
+    middleware::{Middleware, SignerMiddleware},
+    providers::{Http, Provider},
+    signers::LocalWallet,
+    types::{Address, Log, U256},
     utils,
 };
-use governor::{Quota, RateLimiter};
-use tokio::sync::{oneshot, Mutex};
+use tokio::task::JoinSet;
 use tracing::info_span;
 use tracing_futures::Instrument;
 
 use crate::{
-    commons::ChainExecutionContext,
     contracts::{
-        defi_llama_oracle::DefiLlamaOracle, factory::CreateTokenFilter, kpi_token::KPIToken,
+        defi_llama_oracle::{DefiLlamaOracle, Template},
+        factory::FactoryEvents,
+        kpi_token::KPIToken,
     },
-    db::models::{self, ActiveOracle, Checkpoint},
+    db::models::{self, ActiveOracle},
     http_client::HttpClient,
-    scanner::commons::{acknowledge_active_oracles, parse_kpi_token_creation_logs},
-    signer::{get_signer, Signer},
-    specification::{self},
+    ipfs, specification,
 };
 
-const DEFAULT_BLOCKS_POLLING_INTERVAL_SECONDS: u64 = 60;
+pub struct DefiLlamaOracleData {
+    address: Address,
+    measurement_timestamp: SystemTime,
+    specification_cid: String,
+    expiration: SystemTime,
+}
 
-pub async fn scan(
-    receiver: oneshot::Receiver<bool>,
-    context: Arc<ChainExecutionContext>,
-) -> anyhow::Result<()> {
-    let update_snapshot_block_number = Arc::new(Mutex::new(false));
-    let blocks_polling_interval_seconds = context
-        .blocks_polling_interval_seconds
-        .unwrap_or(DEFAULT_BLOCKS_POLLING_INTERVAL_SECONDS);
+pub async fn parse_kpi_token_creation_log(
+    chain_id: u64,
+    signer: Arc<SignerMiddleware<Provider<Http>, LocalWallet>>,
+    log: Log,
+    oracle_template_id: u64,
+) -> anyhow::Result<Vec<DefiLlamaOracleData>> {
+    let raw_log = RawLog {
+        topics: log.topics,
+        data: log.data.to_vec(),
+    };
+    let token_address = match FactoryEvents::decode_log(&raw_log) {
+        Ok(FactoryEvents::CreateTokenFilter(data)) => data.token,
+        _ => {
+            tracing::warn!("tried to decode an invalid log");
+            return Ok(Vec::new());
+        }
+    };
 
-    tokio::spawn(
-        message_receiver(receiver, update_snapshot_block_number.clone())
-            .instrument(info_span!("message-receiver")),
-    );
-
-    // enforces a minimum wait time of 1 sec before attempting to reconnect in
-    // the loop
-    let rate_limiter = RateLimiter::direct(Quota::per_second(NonZeroU32::new(1u32).unwrap()));
-
-    loop {
-        rate_limiter.until_ready().await;
-
-        let signer = get_signer(
-            context.rpc_endpoint.clone(),
-            context.answerer_private_key.clone(),
-            context.chain_id,
-        )
-        .await?;
-
-        let mut stream = match signer
-            .watch_blocks()
+    let mut data = Vec::new();
+    let mut multicall = Multicall::new_with_chain_id(signer.clone(), None, Some(chain_id))?;
+    let kpi_token = KPIToken::new(token_address, signer.clone());
+    let (oracle_addresses, kpi_token_expiration) = multicall
+        .add_call(kpi_token.oracles(), false)
+        .add_call(kpi_token.expiration(), false)
+        .call::<(Vec<Address>, U256)>()
+        .await
+        .context(format!(
+            "could not get oracles and expiration for kpi token 0x{:x}",
+            token_address
+        ))?;
+    let kpi_token_expiration = UNIX_EPOCH + Duration::from_secs(kpi_token_expiration.as_u64());
+    multicall.clear_calls();
+    for oracle_address in oracle_addresses.into_iter() {
+        let oracle = DefiLlamaOracle::new(oracle_address, signer.clone());
+        match multicall
+            .add_call(oracle.finalized(), false)
+            .add_call(oracle.template(), false)
+            .call::<(bool, Template)>()
             .await
-            .context("could not watch for blocks")
         {
-            Ok(watcher) => watcher
-                .interval(Duration::from_secs(blocks_polling_interval_seconds))
-                .stream(),
-            Err(error) => {
-                tracing::error!("{:#}", error);
-                continue;
-            }
-        };
-
-        tracing::info!("watching blocks");
-
-        while let Some(block_hash) = stream.next().await {
-            let block = match signer.get_block(block_hash).await {
-                Ok(block) => {
-                    if let None = block {
-                        tracing::error!(
-                            "could not fetch block with hash {}: no error but block is none",
-                            block_hash
-                        );
-                        continue;
-                    } else {
-                        block.unwrap()
-                    }
-                }
-                Err(err) => {
-                    tracing::error!("could not fetch block with hash {}: {:#}", block_hash, err);
+            Ok((finalized, template)) => {
+                if finalized {
+                    tracing::info!(
+                        "oracle with address 0x{:x} already finalized, skipping",
+                        oracle_address
+                    );
                     continue;
                 }
-            };
 
-            let block_number = block.number.unwrap();
-
-            handle_new_active_oracles(signer.clone(), block, context.clone()).await;
-
-            if let Err(error) =
-                handle_active_oracles_answering(signer.clone(), context.clone()).await
-            {
-                tracing::error!("error while handling active oracles answering: {:#}", error);
-            }
-
-            if *update_snapshot_block_number.lock().await {
-                let database_connection = &mut context
-                    .db_connection_pool
-                    .get()
-                    .context("could not get new connection from pool")?;
-                if let Err(error) = Checkpoint::update(
-                    database_connection,
-                    context.chain_id,
-                    block_number.as_u32() as i64,
-                ) {
-                    tracing::error!("could not update snapshot block number: {:#}", error);
+                if template.id.as_u64() != oracle_template_id {
+                    tracing::info!(
+                        "oracle with address 0x{:x} doesn't have the right template id, skipping",
+                        oracle_address
+                    );
+                    continue;
                 }
+
+                let specification = match oracle.specification().await {
+                    Ok(specification) => specification,
+                    Err(error) => {
+                        tracing::error!(
+                            "could not fetch specification cid for oracle at address {}, skipping - {:#}",
+                            oracle_address,
+                            error
+                        );
+                        continue;
+                    }
+                };
+
+                let measurement_timestamp = match oracle.measurement_timestamp().await {
+                    Ok(measurement_timestamp) => measurement_timestamp,
+                    Err(error) => {
+                        tracing::error!(
+                            "could not fetch measurement timestamp for oracle at address {}, skipping - {:#}",
+                            oracle_address,
+                            error
+                        );
+                        continue;
+                    }
+                };
+                let measurement_timestamp =
+                    UNIX_EPOCH + Duration::from_secs(measurement_timestamp.as_u64());
+
+                data.push(DefiLlamaOracleData {
+                    address: oracle_address,
+                    measurement_timestamp,
+                    specification_cid: specification,
+                    expiration: kpi_token_expiration,
+                });
             }
-        }
+            Err(error) => {
+                tracing::error!(
+                    "could not fetch multicall data from oracle 0x{:x}: {:#}",
+                    oracle_address,
+                    error
+                );
+            }
+        };
     }
+
+    Ok(data)
 }
 
-async fn message_receiver(
-    receiver: oneshot::Receiver<bool>,
-    update_snapshot_block_number: Arc<Mutex<bool>>,
+pub async fn acknowledge_active_oracles(
+    chain_id: u64,
+    oracles_data: Vec<DefiLlamaOracleData>,
+    db_connection_pool: Pool<ConnectionManager<PgConnection>>,
+    ipfs_http_client: Arc<HttpClient>,
+    defillama_http_client: Arc<HttpClient>,
+    web3_storage_http_client: Option<Arc<HttpClient>>,
 ) {
-    match receiver.await {
-        Ok(value) => {
-            if !value {
-                panic!("snapshot updates ownership channel receiver received a false value: this should never happen");
-            } else {
-                *update_snapshot_block_number.lock().await = value;
-                tracing::info!("snapshot updates ownership taken");
-            }
-        }
-        Err(error) => {
-            tracing::error!("error while receiving control over snapshot block number update from past indexer: {:#}", error);
-        }
-    }
-}
-
-async fn handle_new_active_oracles(
-    signer: Arc<Signer>,
-    block: Block<H256>,
-    context: Arc<ChainExecutionContext>,
-) -> () {
-    let block_number = block.number.unwrap();
-
-    let filter = Filter::new()
-        .address(context.factory_config.address)
-        .event(CreateTokenFilter::abi_signature().deref())
-        .at_block_hash(block.hash.unwrap());
-
-    let fetch_logs = || async {
-        signer
-            .get_logs(&filter)
-            .await
-            .map_err(|err| backoff::Error::Transient {
-                err: anyhow!("error fetching logs from block {}: {:#}", block_number, err),
-                retry_after: None,
-            })
-    };
-
-    let kpi_token_creation_logs = match backoff::future::retry(
-        ExponentialBackoffBuilder::new()
-            .with_max_elapsed_time(Some(Duration::from_secs(20)))
-            .build(),
-        fetch_logs,
-    )
-    .await
-    {
-        Ok(logs) => logs,
-        Err(error) => {
-            tracing::error!(
-                "could not get kpi token creation logs for block {}: {:#}",
-                block_number,
-                error
-            );
-            return;
-        }
-    };
-
-    let oracles_data = parse_kpi_token_creation_logs(
-        context.chain_id,
-        signer,
-        kpi_token_creation_logs,
-        context.template_id,
-    )
-    .await;
-
-    if oracles_data.len() > 0 {
-        tracing::info!(
-            "block {}: detected {} new active oracle(s)",
-            block_number,
-            oracles_data.len()
+    let mut join_set = JoinSet::new();
+    for data in oracles_data.into_iter() {
+        let oracle_address = format!("0x{:x}", data.address);
+        join_set.spawn(
+            acknowledge_active_oracle(
+                chain_id,
+                data,
+                db_connection_pool.clone(),
+                ipfs_http_client.clone(),
+                defillama_http_client.clone(),
+                web3_storage_http_client.clone(),
+            )
+            .instrument(tracing::error_span!("ack", chain_id, oracle_address)),
         );
     }
 
-    acknowledge_active_oracles(
-        context.chain_id,
-        oracles_data,
-        context.db_connection_pool.clone(),
-        context.ipfs_http_client.clone(),
-        context.defillama_http_client.clone(),
-        context.web3_storage_http_client.clone(),
-    )
-    .await;
+    while let Some(join_result) = join_set.join_next().await {
+        match join_result {
+            Ok(result) => {
+                if let Err(error) = result {
+                    tracing::error!("an active oracle acknowledgement task unexpectedly stopped with an error: {:#}", error);
+                }
+            }
+            Err(error) => {
+                tracing::error!(
+                    "an unexpected error happened while joining a task: {:#}",
+                    error
+                );
+            }
+        }
+    }
 }
 
-async fn handle_active_oracles_answering(
-    signer: Arc<Signer>,
-    context: Arc<ChainExecutionContext>,
+pub async fn acknowledge_active_oracle(
+    chain_id: u64,
+    oracle_data: DefiLlamaOracleData,
+    db_connection_pool: Pool<ConnectionManager<PgConnection>>,
+    ipfs_http_client: Arc<HttpClient>,
+    defillama_http_client: Arc<HttpClient>,
+    web3_storage_http_client: Option<Arc<HttpClient>>,
 ) -> anyhow::Result<()> {
-    let mut db_connection = match context.db_connection_pool.get() {
+    match ipfs::fetch_specification_with_retry(
+        ipfs_http_client.clone(),
+        &oracle_data.specification_cid,
+    )
+    .await
+    {
+        Ok(specification) => {
+            if !specification::validate(&specification, defillama_http_client).await {
+                tracing::error!("specification validation failed for oracle at address 0x{:x}, this won't be handled", oracle_data.address);
+                return Ok(());
+            }
+
+            let database_connection = &mut db_connection_pool
+                .get()
+                .context("could not get new connection from pool")?;
+
+            models::ActiveOracle::create(
+                database_connection,
+                oracle_data.address,
+                chain_id,
+                oracle_data.measurement_timestamp,
+                specification,
+                oracle_data.expiration,
+            )
+            .context("could not insert new active oracle into database")?;
+
+            if let Some(web3_storage_http_client) = web3_storage_http_client {
+                let oracle_address = format!("0x{:x}", oracle_data.address);
+                tokio::spawn(ipfs::pin_on_web3_storage_with_retry(
+                    ipfs_http_client,
+                    web3_storage_http_client,
+                    oracle_data.specification_cid.clone(),
+                ))
+                .instrument(info_span!(
+                    "web3-storage-pinner",
+                    chain_id,
+                    oracle_address
+                ));
+            }
+
+            tracing::info!(
+                "oracle with address 0x{:x} saved to database",
+                oracle_data.address
+            );
+
+            Ok(())
+        }
+        Err(error) => {
+            tracing::error!("{:#}", error);
+            Ok(())
+        }
+    }
+}
+
+pub async fn handle_active_oracles_answering(
+    chain_id: u64,
+    signer: Arc<SignerMiddleware<Provider<Http>, LocalWallet>>,
+    db_connection_pool: Pool<ConnectionManager<PgConnection>>,
+    defillama_http_client: Arc<HttpClient>,
+) -> anyhow::Result<()> {
+    let mut db_connection = match db_connection_pool.get() {
         Ok(connection) => connection,
         Err(error) => {
             tracing::error!("could not get new connection from pool: {:#}", error);
@@ -226,20 +259,18 @@ async fn handle_active_oracles_answering(
         }
     };
 
-    let active_oracles = match models::ActiveOracle::get_all_answerable_for_chain_id(
-        &mut db_connection,
-        context.chain_id,
-    ) {
-        Ok(oracles) => oracles,
-        Err(error) => {
-            tracing::error!(
-                "could not get currently active oracles in chain with id {}: {:#}",
-                context.chain_id,
-                error
-            );
-            return Ok(());
-        }
-    };
+    let active_oracles =
+        match models::ActiveOracle::get_all_answerable_for_chain_id(&mut db_connection, chain_id) {
+            Ok(oracles) => oracles,
+            Err(error) => {
+                tracing::error!(
+                    "could not get currently active oracles in chain with id {}: {:#}",
+                    chain_id,
+                    error
+                );
+                return Ok(());
+            }
+        };
     drop(db_connection);
 
     let active_oracles_len = active_oracles.len();
@@ -247,14 +278,14 @@ async fn handle_active_oracles_answering(
         tracing::info!("trying to answer {} active oracles", active_oracles_len);
     }
 
-    let chain_id = context.chain_id;
+    let chain_id = chain_id;
     for active_oracle in active_oracles.into_iter() {
         let oracle_address = format!("0x{:x}", active_oracle.address.0);
         let oracle_address_clone = oracle_address.clone();
         if let Err(err) = answer_active_oracle(
             signer.clone(),
-            context.db_connection_pool.clone(),
-            context.defillama_http_client.clone(),
+            db_connection_pool.clone(),
+            defillama_http_client.clone(),
             active_oracle,
         )
         .instrument(info_span!("answer", chain_id, oracle_address))
@@ -272,7 +303,7 @@ async fn handle_active_oracles_answering(
 }
 
 async fn answer_active_oracle(
-    signer: Arc<Signer>,
+    signer: Arc<SignerMiddleware<Provider<Http>, LocalWallet>>,
     db_connection_pool: Pool<ConnectionManager<PgConnection>>,
     defillama_http_client: Arc<HttpClient>,
     mut active_oracle: models::ActiveOracle,
@@ -469,7 +500,7 @@ async fn answer_active_oracle(
 
 async fn is_active_oracle_expired(
     db_connection_pool: Pool<ConnectionManager<PgConnection>>,
-    signer: Arc<Signer>,
+    signer: Arc<SignerMiddleware<Provider<Http>, LocalWallet>>,
     active_oracle: &mut ActiveOracle,
 ) -> anyhow::Result<bool> {
     let expiration = match active_oracle.expiration {
@@ -494,7 +525,7 @@ async fn is_active_oracle_expired(
 }
 
 async fn fetch_active_oracle_expiration(
-    signer: Arc<Signer>,
+    signer: Arc<SignerMiddleware<Provider<Http>, LocalWallet>>,
     address: Address,
 ) -> anyhow::Result<SystemTime> {
     let oracle = DefiLlamaOracle::new(address, signer.clone());

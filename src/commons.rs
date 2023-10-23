@@ -21,7 +21,7 @@ pub struct ChainConfig {
     pub answerer_private_key: String,
     pub rpc_endpoint: String,
     pub logs_blocks_range: Option<u64>,
-    pub blocks_polling_interval_seconds: Option<u64>,
+    pub logs_polling_interval_seconds: Option<u64>,
     pub template_id: u64,
     pub factory: ContractConfig,
 }
@@ -46,7 +46,7 @@ pub struct Config {
     pub ipfs_api_endpoint: String,
     pub db_connection_string: String,
     pub web3_storage_api_key: Option<String>,
-    pub dev_mode: bool,
+    pub dev_mode: Option<bool>,
     pub api: ApiConfig,
     pub chain_configs: HashMap<u64, ChainConfig>,
 }
