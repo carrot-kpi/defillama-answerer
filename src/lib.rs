@@ -137,7 +137,6 @@ pub async fn main() -> anyhow::Result<()> {
     };
     let defillama_http_client = Arc::new(defillama_http_client);
 
-    // let mut join_set = JoinSet::new();
     let mut mibs_builder = MibsBuilder::new();
     for (chain_id, chain_config) in config.chain_configs.into_iter() {
         let rpc_endpoint = chain_config.rpc_endpoint.as_str();
@@ -175,7 +174,7 @@ pub async fn main() -> anyhow::Result<()> {
 
         let provider = Arc::new(
             Provider::<Http>::try_from(rpc_url.clone())
-                .context(format!("could not get signer for chain {chain_id}"))?,
+                .context(format!("could not get provider for chain {chain_id}"))?,
         );
 
         let signer = Arc::new(SignerMiddleware::new(
