@@ -124,23 +124,14 @@ impl MibsListener for Listener {
         match update {
             Update::NewLog(log) => self.on_log(log).await,
             Update::PastBatchCompleted {
-                from_block,
+                from_block: _,
                 to_block,
-                progress_percentage,
             } => {
-                if progress_percentage == 100f32 {
-                    tracing::info!("finished scanning past blocks");
-                    self.scanning_past = false;
-                } else {
-                    tracing::info!(
-                        "{} -> {} - scanned {}% of past blocks",
-                        from_block,
-                        to_block,
-                        progress_percentage
-                    );
-                }
-
                 self.update_checkpoint_block_number(to_block).await;
+            }
+            Update::PastScanningCompleted => {
+                tracing::info!("finished scanning past blocks");
+                self.scanning_past = false;
             }
             Update::NewBlock(block_number) => {
                 if let Err(error) = handle_active_oracles_answering(
