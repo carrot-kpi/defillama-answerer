@@ -2315,9 +2315,9 @@ dependencies = [
 
 [[package]]
 name = "mibs"
-version = "0.12.0"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e6a21d44faeaa4fa270e893914d63f758f0f64d3fe98a7597e3a9bf0360dd600"
+checksum = "081d4780094147d50920b9e68c66a30e47532f94ed1e9b242998f10622453de5"
 dependencies = [
  "async-stream",
  "async-trait",
