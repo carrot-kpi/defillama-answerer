@@ -3,6 +3,7 @@ mod commons;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use carrot_commons::http_client::HttpClient;
 use diesel::{
     r2d2::{ConnectionManager, Pool},
     PgConnection,
@@ -15,7 +16,7 @@ use ethers::{
 };
 use mibs::types::{Listener as MibsListener, Update};
 
-use crate::{db::models, http_client::HttpClient};
+use crate::db::models;
 
 use self::commons::{
     acknowledge_active_oracles, handle_active_oracles_answering, parse_kpi_token_creation_log,

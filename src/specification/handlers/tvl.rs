@@ -2,16 +2,14 @@ use std::{str::FromStr, sync::Arc};
 
 use anyhow::Context;
 use async_trait::async_trait;
+use carrot_commons::http_client::HttpClient;
 use ethers::types::U256;
 use reqwest::Method;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::{
-    http_client::HttpClient,
-    specification::{Answer, Validate},
-};
+use crate::specification::{Answer, Validate};
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, ToSchema)]
 pub struct TvlPayload {
@@ -91,6 +89,7 @@ impl<'a> Answer<'a, TvlPayload> for TvlHandler {
 mod test {
     use std::sync::Arc;
 
+    use carrot_commons::http_client::HttpClient;
     use ethers::types::U256;
     use wiremock::{
         matchers::{method, path},
@@ -98,7 +97,7 @@ mod test {
     };
 
     use crate::{
-        http_client::HttpClient,
+        commons::HTTP_TIMEOUT,
         specification::{handlers::tvl::TvlHandler, Answer},
     };
 
@@ -113,10 +112,7 @@ mod test {
 
         let defillama_mock_server = MockServer::start().await;
         let defillama_http_client = Arc::new(
-            HttpClient::builder()
-                .base_url(
-                    defillama_mock_server.uri(), // guaranteed to be a valid url
-                )
+            HttpClient::builder(defillama_mock_server.uri(), HTTP_TIMEOUT)
                 .build()
                 .unwrap(),
         );
@@ -140,10 +136,7 @@ mod test {
 
         let defillama_mock_server = MockServer::start().await;
         let defillama_http_client = Arc::new(
-            HttpClient::builder()
-                .base_url(
-                    defillama_mock_server.uri(), // guaranteed to be a valid url
-                )
+            HttpClient::builder(defillama_mock_server.uri(), HTTP_TIMEOUT)
                 .build()
                 .unwrap(),
         );

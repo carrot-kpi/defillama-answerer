@@ -1,6 +1,6 @@
-use std::{collections::HashMap, net::Ipv4Addr, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, net::Ipv4Addr, sync::Arc, time::Duration};
 
-use anyhow::Context;
+use carrot_commons::http_client::HttpClient;
 use diesel::{
     r2d2::{ConnectionManager, Pool},
     PgConnection,
@@ -8,7 +8,10 @@ use diesel::{
 use ethers::types::Address;
 use serde::{Deserialize, Serialize};
 
-use crate::http_client::HttpClient;
+pub const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
+pub const FETCH_SPECIFICATION_JSON_MAX_ELAPSED_TIME: Duration = Duration::from_secs(6_000);
+pub const PIN_CID_LOCALLY_MAX_ELAPSED_TIME: Duration = Duration::from_secs(6_000);
+pub const PIN_CID_WEB3_STORAGE_MAX_ELAPSED_TIME: Duration = Duration::from_secs(6_000);
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ContractConfig {
@@ -64,15 +67,4 @@ pub struct ChainExecutionContext {
     pub db_connection_pool: Pool<ConnectionManager<PgConnection>>,
     pub factory_config: ContractConfig,
     pub dev_mode: bool,
-}
-
-pub fn get_config(alt_path: Option<String>) -> anyhow::Result<Config> {
-    let default_path = confy::get_configuration_file_path("", "carrot-defillama-answerer")
-        .context("could not get default config path for platform")?
-        .to_string_lossy()
-        .to_string();
-    let raw_path = alt_path.unwrap_or(default_path);
-    tracing::info!("using path {} to read config", raw_path);
-    let path = PathBuf::from(raw_path);
-    confy::load_path::<Config>(path).context("could not read config")
 }

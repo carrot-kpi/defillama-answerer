@@ -3,12 +3,13 @@ pub mod handlers;
 use std::{fmt::Debug, sync::Arc};
 
 use async_trait::async_trait;
+use carrot_commons::http_client::HttpClient;
 use diesel::{sql_types::Jsonb, AsExpression, FromSqlRow};
 use ethers::types::U256;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::{http_client::HttpClient, specification::handlers::tvl::TvlHandler};
+use crate::specification::handlers::tvl::TvlHandler;
 
 use self::handlers::tvl::TvlPayload;
 

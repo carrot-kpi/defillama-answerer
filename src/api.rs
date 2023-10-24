@@ -3,9 +3,8 @@ mod specifications;
 
 use std::{net::Ipv4Addr, sync::Arc};
 
+use carrot_commons::http_client::HttpClient;
 use warp::Filter;
-
-use crate::http_client::HttpClient;
 
 pub async fn serve(
     host: Ipv4Addr,

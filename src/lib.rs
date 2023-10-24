@@ -2,14 +2,15 @@ pub mod api;
 pub mod commons;
 pub mod contracts;
 pub mod db;
-pub mod http_client;
-pub mod ipfs;
 pub mod listener;
 pub mod specification;
 
-use std::{env, num::NonZeroU32, ops::Deref, process::exit, sync::Arc, time::Duration};
+use std::{
+    env, num::NonZeroU32, ops::Deref, path::PathBuf, process::exit, sync::Arc, time::Duration,
+};
 
 use anyhow::Context;
+use carrot_commons::{config::get_config, http_client::HttpClient};
 use diesel::{
     r2d2::{ConnectionManager, Pool},
     PgConnection,
@@ -29,7 +30,10 @@ use tracing_futures::Instrument;
 use tracing_subscriber::{filter::LevelFilter, EnvFilter, FmtSubscriber};
 
 use crate::{
-    contracts::factory::CreateTokenFilter, db::models, http_client::HttpClient, listener::Listener,
+    commons::{Config, HTTP_TIMEOUT},
+    contracts::factory::CreateTokenFilter,
+    db::models,
+    listener::Listener,
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 
@@ -62,14 +66,21 @@ pub async fn main() {
         exit(1);
     }
 
-    let alt_config_path = env::var("CONFIG_PATH").ok();
-    let config = match commons::get_config(alt_config_path).context("could not read config") {
-        Ok(config) => config,
-        Err(error) => {
-            tracing::error!("{:#}", error);
-            exit(1);
-        }
+    let alt_config_path = if let Some(alt_config_path) = env::var("CONFIG_PATH").ok() {
+        let mut path = PathBuf::new();
+        path.push(alt_config_path);
+        Some(path)
+    } else {
+        None
     };
+    let config: Config =
+        match get_config("defillama-answerer", alt_config_path).context("could not read config") {
+            Ok(config) => config,
+            Err(error) => {
+                tracing::error!("{:#}", error);
+                exit(1);
+            }
+        };
 
     tracing::info!("connecting to database");
     let db_connection_pool = match db::connect(&config.db_connection_string) {
@@ -97,9 +108,7 @@ pub async fn main() {
     }
 
     tracing::info!("ipfs api endpoint: {}", config.ipfs_api_endpoint);
-    let ipfs_http_client = match HttpClient::builder()
-        .base_url(config.ipfs_api_endpoint.to_owned())
-        .build()
+    let ipfs_http_client = match HttpClient::builder(config.ipfs_api_endpoint, HTTP_TIMEOUT).build()
     {
         Ok(ipfs_http_client) => ipfs_http_client,
         Err(error) => {
@@ -110,27 +119,26 @@ pub async fn main() {
     let ipfs_http_client = Arc::new(ipfs_http_client);
 
     let web3_storage_http_client = config.web3_storage_api_key.map(|token| {
-        let web3_storage_http_client = match HttpClient::builder()
-            .base_url("https://api.web3.storage".to_owned())
-            .bearer_auth_token(token)
-            .rate_limiter(RateLimiter::direct(Quota::per_second(
-                NonZeroU32::new(MAX_CALLS_PER_SECOND_WEB3_STORAGE).unwrap(),
-            )))
-            .build()
-        {
-            Ok(web3_storage_http_client) => web3_storage_http_client,
-            Err(error) => {
-                tracing::error!("{:#}", error);
-                exit(1);
-            }
-        };
+        let web3_storage_http_client =
+            match HttpClient::builder("https://api.web3.storage", HTTP_TIMEOUT)
+                .bearer_auth_token(token)
+                .rate_limiter(RateLimiter::direct(Quota::per_second(
+                    NonZeroU32::new(MAX_CALLS_PER_SECOND_WEB3_STORAGE).unwrap(),
+                )))
+                .build()
+            {
+                Ok(web3_storage_http_client) => web3_storage_http_client,
+                Err(error) => {
+                    tracing::error!("{:#}", error);
+                    exit(1);
+                }
+            };
         let web3_storage_http_client = Arc::new(web3_storage_http_client);
         tracing::info!("web3.storage pinning is enabled");
         web3_storage_http_client
     });
 
-    let defillama_http_client = match HttpClient::builder()
-        .base_url("https://api.llama.fi".to_owned())
+    let defillama_http_client = match HttpClient::builder("https://api.llama.fi", HTTP_TIMEOUT)
         .rate_limiter(RateLimiter::direct(Quota::per_second(
             NonZeroU32::new(MAX_CALLS_PER_SECOND_DEFILLAMA).unwrap(),
         )))
