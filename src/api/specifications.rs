@@ -1,12 +1,10 @@
 use std::{convert::Infallible, sync::Arc};
 
+use carrot_commons::http_client::HttpClient;
 use serde_json::Value;
 use warp::{body, http, path, post, reply, Filter, Rejection, Reply};
 
-use crate::{
-    http_client::HttpClient,
-    specification::{self, Specification},
-};
+use crate::specification::{self, Specification};
 
 pub fn handlers(
     defillama_http_client: Arc<HttpClient>,
