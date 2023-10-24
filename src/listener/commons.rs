@@ -24,6 +24,10 @@ use tracing::info_span;
 use tracing_futures::Instrument;
 
 use crate::{
+    commons::{
+        FETCH_SPECIFICATION_JSON_MAX_ELAPSED_TIME, PIN_CID_LOCALLY_MAX_ELAPSED_TIME,
+        PIN_CID_WEB3_STORAGE_MAX_ELAPSED_TIME,
+    },
     contracts::{
         defi_llama_oracle::{DefiLlamaOracle, Template},
         factory::FactoryEvents,
@@ -196,10 +200,7 @@ pub async fn acknowledge_active_oracle(
         oracle_data.specification_cid.clone(),
         ipfs_http_client.clone(),
         ExponentialBackoffBuilder::new()
-            .with_max_elapsed_time(Some(
-                // retry for 10 minutes
-                Duration::from_secs(6_000),
-            ))
+            .with_max_elapsed_time(Some(FETCH_SPECIFICATION_JSON_MAX_ELAPSED_TIME))
             .build(),
     )
     .await
@@ -224,25 +225,15 @@ pub async fn acknowledge_active_oracle(
             )
             .context("could not insert new active oracle into database")?;
 
-            if let Some(web3_storage_http_client) = web3_storage_http_client {
-                let oracle_address = format!("0x{:x}", oracle_data.address);
-                tokio::spawn(ipfs::pin_cid_web3_storage_with_retry(
-                    oracle_data.specification_cid,
-                    ipfs_http_client,
-                    web3_storage_http_client,
-                    ExponentialBackoffBuilder::new()
-                        .with_max_elapsed_time(Some(
-                            // retry for 10 minutes
-                            Duration::from_secs(6_000),
-                        ))
-                        .build(),
-                ))
-                .instrument(info_span!(
-                    "web3-storage-pinner",
-                    chain_id,
-                    oracle_address
-                ));
-            }
+            let cid = oracle_data.specification_cid;
+            tokio::spawn(
+                pin_cid(
+                    cid.clone(),
+                    ipfs_http_client.clone(),
+                    web3_storage_http_client.clone(),
+                )
+                .instrument(info_span!("pinning", cid)),
+            );
 
             tracing::info!(
                 "oracle with address 0x{:x} saved to database",
@@ -255,6 +246,45 @@ pub async fn acknowledge_active_oracle(
             tracing::error!("{:#}", error);
             Ok(())
         }
+    }
+}
+
+async fn pin_cid(
+    cid: String,
+    ipfs_http_client: Arc<HttpClient>,
+    web3_storage_http_client: Option<Arc<HttpClient>>,
+) {
+    match ipfs::pin_cid_with_retry(
+        cid.clone(),
+        ipfs_http_client.clone(),
+        ExponentialBackoffBuilder::new()
+            .with_max_elapsed_time(Some(PIN_CID_LOCALLY_MAX_ELAPSED_TIME))
+            .build(),
+    )
+    .await
+    {
+        Ok(_) => {}
+        Err(err) => {
+            tracing::error!("could not pin cid {cid} locally: {err:?}");
+        }
+    }
+
+    if let Some(web3_storage_http_client) = &web3_storage_http_client {
+        match ipfs::pin_cid_web3_storage_with_retry(
+            cid.clone(),
+            ipfs_http_client.clone(),
+            web3_storage_http_client.clone(),
+            ExponentialBackoffBuilder::new()
+                .with_max_elapsed_time(Some(PIN_CID_WEB3_STORAGE_MAX_ELAPSED_TIME))
+                .build(),
+        )
+        .await
+        {
+            Ok(_) => {}
+            Err(err) => {
+                tracing::error!("could not pin cid {cid} on web3.storage: {err:?}");
+            }
+        };
     }
 }
 

@@ -9,6 +9,9 @@ use ethers::types::Address;
 use serde::{Deserialize, Serialize};
 
 pub const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
+pub const FETCH_SPECIFICATION_JSON_MAX_ELAPSED_TIME: Duration = Duration::from_secs(6_000);
+pub const PIN_CID_LOCALLY_MAX_ELAPSED_TIME: Duration = Duration::from_secs(6_000);
+pub const PIN_CID_WEB3_STORAGE_MAX_ELAPSED_TIME: Duration = Duration::from_secs(6_000);
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ContractConfig {
