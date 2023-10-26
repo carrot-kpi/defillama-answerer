@@ -18,9 +18,7 @@ use mibs::types::{Listener as MibsListener, Update};
 
 use crate::db::models;
 
-use self::commons::{
-    acknowledge_active_oracles, handle_active_oracles_answering, parse_kpi_token_creation_log,
-};
+use self::commons::{acknowledge_active_oracles, parse_kpi_token_creation_log};
 
 pub struct Listener {
     chain_id: u64,
@@ -135,17 +133,6 @@ impl MibsListener for Listener {
                 self.scanning_past = false;
             }
             Update::NewBlock(block_number) => {
-                if let Err(error) = handle_active_oracles_answering(
-                    self.chain_id,
-                    self.signer.clone(),
-                    self.db_connection_pool.clone(),
-                    self.defillama_http_client.clone(),
-                )
-                .await
-                {
-                    tracing::error!("error while handling active oracles answering: {:#}", error);
-                }
-
                 if !self.scanning_past {
                     self.update_checkpoint_block_number(block_number).await;
                 }
