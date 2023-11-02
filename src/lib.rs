@@ -1,3 +1,4 @@
+pub mod answerer;
 pub mod api;
 pub mod commons;
 pub mod contracts;
@@ -30,6 +31,7 @@ use tracing_futures::Instrument;
 use tracing_subscriber::{filter::LevelFilter, EnvFilter, FmtSubscriber};
 
 use crate::{
+    answerer::answer_active_oracles,
     commons::{Config, HTTP_TIMEOUT},
     contracts::factory::CreateTokenFilter,
     db::models,
@@ -152,8 +154,11 @@ pub async fn main() {
     };
     let defillama_http_client = Arc::new(defillama_http_client);
 
+    let mut join_set = JoinSet::new();
+
     let mut mibs_builder = MibsBuilder::new();
     for (chain_id, chain_config) in config.chain_configs.into_iter() {
+        let cloned_chain_config = chain_config.clone();
         let rpc_endpoint = chain_config.rpc_endpoint.as_str();
 
         tracing::info!(
@@ -186,7 +191,7 @@ pub async fn main() {
             Listener::new(
                 chain_id,
                 chain_config.template_id,
-                signer,
+                signer.clone(),
                 db_connection_pool.clone(),
                 ipfs_http_client.clone(),
                 defillama_http_client.clone(),
@@ -202,10 +207,20 @@ pub async fn main() {
         ))
         .skip_past(config.dev_mode);
 
+        join_set.spawn(
+            answer_active_oracles(
+                chain_id,
+                cloned_chain_config,
+                signer,
+                db_connection_pool.clone(),
+                defillama_http_client.clone(),
+            )
+            .instrument(info_span!("answerer", chain_id)),
+        );
+
         mibs_builder = mibs_builder.chain_config(chain_config_builder.build());
     }
 
-    let mut join_set = JoinSet::new();
     join_set.spawn(
         async {
             mibs_builder

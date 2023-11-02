@@ -9,22 +9,24 @@ use ethers::types::Address;
 use serde::{Deserialize, Serialize};
 
 pub const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
+pub const ANSWERING_TASK_INTERVAL_SECONDS: Duration = Duration::from_secs(10_000);
 pub const FETCH_SPECIFICATION_JSON_MAX_ELAPSED_TIME: Duration = Duration::from_secs(6_000);
 pub const PIN_CID_LOCALLY_MAX_ELAPSED_TIME: Duration = Duration::from_secs(6_000);
 pub const PIN_CID_WEB3_STORAGE_MAX_ELAPSED_TIME: Duration = Duration::from_secs(6_000);
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContractConfig {
     pub address: Address,
     pub deployment_block: u64,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChainConfig {
     pub answerer_private_key: String,
     pub rpc_endpoint: String,
     pub logs_blocks_range: Option<u64>,
     pub logs_polling_interval_seconds: Option<u64>,
+    pub answering_task_interval_seconds: Option<u64>,
     pub template_id: u64,
     pub factory: ContractConfig,
 }
