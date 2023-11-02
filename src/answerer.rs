@@ -86,9 +86,11 @@ pub async fn handle_active_oracles_answering(
     drop(db_connection);
 
     let active_oracles_len = active_oracles.len();
-    if active_oracles_len > 0 {
-        tracing::info!("trying to answer {} active oracles", active_oracles_len);
+    if active_oracles_len == 0 {
+        return Ok(());
     }
+
+    tracing::info!("trying to answer {} active oracles", active_oracles_len);
 
     let chain_id = chain_id;
     for active_oracle in active_oracles.into_iter() {
