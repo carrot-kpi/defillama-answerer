@@ -33,14 +33,13 @@ pub async fn answer_active_oracles(
     db_connection_pool: Pool<ConnectionManager<PgConnection>>,
     defillama_http_client: Arc<HttpClient>,
 ) -> anyhow::Result<()> {
-    let mut interval = interval(
-        chain_config
-            .answering_task_interval_seconds
-            .map(|seconds| Duration::from_secs(seconds))
-            .unwrap_or(ANSWERING_TASK_INTERVAL_SECONDS),
-    );
+    let duration = chain_config
+        .answering_task_interval_seconds
+        .map(|seconds| Duration::from_secs(seconds))
+        .unwrap_or(ANSWERING_TASK_INTERVAL_SECONDS);
+    let mut interval = interval(duration);
 
-    tracing::info!("answering active oracles");
+    tracing::info!("answering active oracles every {}s", duration.as_secs());
 
     loop {
         interval.tick().await;
