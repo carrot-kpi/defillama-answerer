@@ -52,7 +52,6 @@ fn setup_logging() -> anyhow::Result<()> {
         .with_current_span(false)
         .with_env_filter(
             EnvFilter::builder()
-                .with_env_var("LOG_LEVEL")
                 .with_default_directive(LevelFilter::INFO.into())
                 .from_env()
                 .context("could not get log level")?,
