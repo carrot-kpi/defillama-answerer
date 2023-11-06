@@ -730,7 +730,7 @@ checksum = "63dfa964fe2a66f3fde91fc70b267fe193d822c7e603e2a675a49a7f46ad3f49"
 
 [[package]]
 name = "defillama-answerer"
-version = "0.11.2"
+version = "0.11.3"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2240,9 +2240,9 @@ dependencies = [
 
 [[package]]
 name = "mibs"
-version = "0.13.0"
+version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3b49c817eaff22bcdc540797e9bfd19aafcc2a62aad0287c1c5a9835b16deb5"
+checksum = "3e51b53dbdc366a979426e296a75ba159a3ff08b2db49f59f3a059369a390010"
 dependencies = [
  "async-stream",
  "async-trait",
