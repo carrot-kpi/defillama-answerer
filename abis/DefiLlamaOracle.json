@@ -10,6 +10,11 @@
                 "internalType": "uint256",
                 "name": "_minimumElapsedTime",
                 "type": "uint256"
+            },
+            {
+                "internalType": "uint256",
+                "name": "_expirationBufferTime",
+                "type": "uint256"
             }
         ],
         "stateMutability": "nonpayable",
@@ -27,12 +32,27 @@
     },
     {
         "inputs": [],
+        "name": "InvalidExpirationBufferTime",
+        "type": "error"
+    },
+    {
+        "inputs": [],
         "name": "InvalidGreaterThanConstraintValue",
         "type": "error"
     },
     {
         "inputs": [],
+        "name": "InvalidInitialization",
+        "type": "error"
+    },
+    {
+        "inputs": [],
         "name": "InvalidLowerThanConstraintValue",
+        "type": "error"
+    },
+    {
+        "inputs": [],
+        "name": "InvalidMinimumElapsedTime",
         "type": "error"
     },
     {
@@ -62,12 +82,17 @@
     },
     {
         "inputs": [],
-        "name": "MeasurementTimestampAfterKPITokenExpiration",
+        "name": "MeasurementTimestampAfterKPITokenExpirationMinusBuffer",
         "type": "error"
     },
     {
         "inputs": [],
         "name": "MeasurementTimestampTooClose",
+        "type": "error"
+    },
+    {
+        "inputs": [],
+        "name": "NotInitializing",
         "type": "error"
     },
     {
@@ -102,6 +127,12 @@
         "anonymous": false,
         "inputs": [
             {
+                "indexed": false,
+                "internalType": "address",
+                "name": "creator",
+                "type": "address"
+            },
+            {
                 "indexed": true,
                 "internalType": "address",
                 "name": "kpiToken",
@@ -112,6 +143,12 @@
                 "internalType": "uint256",
                 "name": "templateId",
                 "type": "uint256"
+            },
+            {
+                "indexed": true,
+                "internalType": "uint128",
+                "name": "templateVersion",
+                "type": "uint128"
             }
         ],
         "name": "Initialize",
@@ -122,9 +159,9 @@
         "inputs": [
             {
                 "indexed": false,
-                "internalType": "uint8",
+                "internalType": "uint64",
                 "name": "version",
-                "type": "uint8"
+                "type": "uint64"
             }
         ],
         "name": "Initialized",
@@ -151,6 +188,19 @@
                 "internalType": "bytes",
                 "name": "",
                 "type": "bytes"
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [],
+        "name": "expirationBufferTime",
+        "outputs": [
+            {
+                "internalType": "uint256",
+                "name": "",
+                "type": "uint256"
             }
         ],
         "stateMutability": "view",
