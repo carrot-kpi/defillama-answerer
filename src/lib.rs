@@ -208,6 +208,7 @@ pub async fn main() {
 
         join_set.spawn(
             answer_active_oracles(
+                config.dev_mode.unwrap_or(false),
                 chain_id,
                 cloned_chain_config,
                 signer,

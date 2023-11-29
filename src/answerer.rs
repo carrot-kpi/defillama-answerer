@@ -27,6 +27,7 @@ use crate::{
 };
 
 pub async fn answer_active_oracles(
+    dev_mode: bool,
     chain_id: u64,
     chain_config: ChainConfig,
     signer: Arc<SignerMiddleware<Provider<Http>, LocalWallet>>,
@@ -45,6 +46,7 @@ pub async fn answer_active_oracles(
         interval.tick().await;
 
         if let Err(error) = handle_active_oracles_answering(
+            dev_mode,
             chain_id,
             signer.clone(),
             db_connection_pool.clone(),
@@ -58,6 +60,7 @@ pub async fn answer_active_oracles(
 }
 
 pub async fn handle_active_oracles_answering(
+    dev_mode: bool,
     chain_id: u64,
     signer: Arc<SignerMiddleware<Provider<Http>, LocalWallet>>,
     db_connection_pool: Pool<ConnectionManager<PgConnection>>,
@@ -97,6 +100,7 @@ pub async fn handle_active_oracles_answering(
         let oracle_address = format!("0x{:x}", active_oracle.address.0);
         let oracle_address_clone = oracle_address.clone();
         if let Err(err) = answer_active_oracle(
+            dev_mode,
             signer.clone(),
             db_connection_pool.clone(),
             defillama_http_client.clone(),
@@ -117,6 +121,7 @@ pub async fn handle_active_oracles_answering(
 }
 
 async fn answer_active_oracle(
+    dev_mode: bool,
     signer: Arc<SignerMiddleware<Provider<Http>, LocalWallet>>,
     db_connection_pool: Pool<ConnectionManager<PgConnection>>,
     defillama_http_client: Arc<HttpClient>,
@@ -203,6 +208,17 @@ async fn answer_active_oracle(
         tracing::info!("answering with value {}", answer);
         let oracle = DefiLlamaOracle::new(active_oracle.address.0, signer.clone());
         let mut call = oracle.finalize(answer);
+
+        if dev_mode {
+            let expected_answerer = match oracle.answerer().call().await {
+                Ok(answerer) => answerer,
+                Err(err) => {
+                    tracing::error!("could not fetch expected answerer while trying to answer in dev mode: {err:#}");
+                    return Ok(());
+                }
+            };
+            call = call.from(expected_answerer);
+        }
 
         match signer.fill_transaction(&mut call.tx, None).await {
             Ok(()) => {}
