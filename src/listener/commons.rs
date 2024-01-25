@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::Context;
 use backoff::ExponentialBackoffBuilder;
-use carrot_commons::{http_client::HttpClient, ipfs};
+use carrot_commons::{data, http_client::HttpClient};
 use diesel::{
     prelude::*,
     r2d2::{ConnectionManager, Pool},
@@ -23,10 +23,7 @@ use tracing::info_span;
 use tracing_futures::Instrument;
 
 use crate::{
-    commons::{
-        FETCH_SPECIFICATION_JSON_MAX_ELAPSED_TIME, PIN_CID_LOCALLY_MAX_ELAPSED_TIME,
-        PIN_CID_WEB3_STORAGE_MAX_ELAPSED_TIME,
-    },
+    commons::{FETCH_SPECIFICATION_JSON_MAX_ELAPSED_TIME, STORE_CID_LOCALLY_MAX_ELAPSED_TIME},
     contracts::{
         defi_llama_oracle::{DefiLlamaOracle, Template},
         factory::FactoryEvents,
@@ -150,9 +147,10 @@ pub async fn acknowledge_active_oracles(
     chain_id: u64,
     oracles_data: Vec<DefiLlamaOracleData>,
     db_connection_pool: Pool<ConnectionManager<PgConnection>>,
-    ipfs_http_client: Arc<HttpClient>,
+    data_cdn_http_client: Arc<HttpClient>,
+    data_manager_http_client: Arc<HttpClient>,
+    ipfs_gateway_http_client: Arc<HttpClient>,
     defillama_http_client: Arc<HttpClient>,
-    web3_storage_http_client: Option<Arc<HttpClient>>,
 ) {
     let mut join_set = JoinSet::new();
     for data in oracles_data.into_iter() {
@@ -162,9 +160,10 @@ pub async fn acknowledge_active_oracles(
                 chain_id,
                 data,
                 db_connection_pool.clone(),
-                ipfs_http_client.clone(),
+                data_cdn_http_client.clone(),
+                data_manager_http_client.clone(),
+                ipfs_gateway_http_client.clone(),
                 defillama_http_client.clone(),
-                web3_storage_http_client.clone(),
             )
             .instrument(tracing::error_span!("ack", chain_id, oracle_address)),
         );
@@ -191,13 +190,15 @@ pub async fn acknowledge_active_oracle(
     chain_id: u64,
     oracle_data: DefiLlamaOracleData,
     db_connection_pool: Pool<ConnectionManager<PgConnection>>,
-    ipfs_http_client: Arc<HttpClient>,
+    data_cdn_http_client: Arc<HttpClient>,
+    data_manager_http_client: Arc<HttpClient>,
+    ipfs_gateway_http_client: Arc<HttpClient>,
     defillama_http_client: Arc<HttpClient>,
-    web3_storage_http_client: Option<Arc<HttpClient>>,
 ) -> anyhow::Result<()> {
-    match ipfs::fetch_json_with_retry::<Specification>(
+    match data::fetch_json_with_retry::<Specification>(
         oracle_data.specification_cid.clone(),
-        ipfs_http_client.clone(),
+        data_cdn_http_client.clone(),
+        ipfs_gateway_http_client.clone(),
         ExponentialBackoffBuilder::new()
             .with_max_elapsed_time(Some(FETCH_SPECIFICATION_JSON_MAX_ELAPSED_TIME))
             .build(),
@@ -226,12 +227,8 @@ pub async fn acknowledge_active_oracle(
 
             let cid = oracle_data.specification_cid;
             tokio::spawn(
-                pin_cid(
-                    cid.clone(),
-                    ipfs_http_client.clone(),
-                    web3_storage_http_client.clone(),
-                )
-                .instrument(info_span!("pinning", cid)),
+                store_cid_ipfs(cid.clone(), data_manager_http_client.clone())
+                    .instrument(info_span!("storing", cid)),
             );
 
             tracing::info!(
@@ -248,41 +245,21 @@ pub async fn acknowledge_active_oracle(
     }
 }
 
-async fn pin_cid(
-    cid: String,
-    ipfs_http_client: Arc<HttpClient>,
-    web3_storage_http_client: Option<Arc<HttpClient>>,
-) {
-    match ipfs::pin_cid_with_retry(
+async fn store_cid_ipfs(cid: String, data_manager_http_client: Arc<HttpClient>) {
+    match data::store_cid_ipfs_with_retry(
         cid.clone(),
-        ipfs_http_client.clone(),
+        data_manager_http_client.clone(),
         ExponentialBackoffBuilder::new()
-            .with_max_elapsed_time(Some(PIN_CID_LOCALLY_MAX_ELAPSED_TIME))
+            .with_max_elapsed_time(Some(STORE_CID_LOCALLY_MAX_ELAPSED_TIME))
             .build(),
     )
     .await
     {
         Ok(_) => {}
         Err(err) => {
-            tracing::error!("could not pin cid {cid} locally: {err:?}");
+            tracing::error!(
+                "could not store cid {cid} on ipfs through the data manager service: {err:?}"
+            );
         }
-    }
-
-    if let Some(web3_storage_http_client) = &web3_storage_http_client {
-        match ipfs::pin_cid_web3_storage_with_retry(
-            cid.clone(),
-            ipfs_http_client.clone(),
-            web3_storage_http_client.clone(),
-            ExponentialBackoffBuilder::new()
-                .with_max_elapsed_time(Some(PIN_CID_WEB3_STORAGE_MAX_ELAPSED_TIME))
-                .build(),
-        )
-        .await
-        {
-            Ok(_) => {}
-            Err(err) => {
-                tracing::error!("could not pin cid {cid} on web3.storage: {err:?}");
-            }
-        };
     }
 }

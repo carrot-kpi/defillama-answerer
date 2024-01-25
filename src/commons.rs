@@ -11,8 +11,7 @@ use serde::{Deserialize, Serialize};
 pub const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 pub const ANSWERING_TASK_INTERVAL_SECONDS: Duration = Duration::from_secs(10);
 pub const FETCH_SPECIFICATION_JSON_MAX_ELAPSED_TIME: Duration = Duration::from_secs(6);
-pub const PIN_CID_LOCALLY_MAX_ELAPSED_TIME: Duration = Duration::from_secs(6);
-pub const PIN_CID_WEB3_STORAGE_MAX_ELAPSED_TIME: Duration = Duration::from_secs(6);
+pub const STORE_CID_LOCALLY_MAX_ELAPSED_TIME: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContractConfig {
@@ -29,6 +28,12 @@ pub struct ChainConfig {
     pub answering_task_interval_seconds: Option<u64>,
     pub template_id: u64,
     pub factory: ContractConfig,
+}
+
+#[derive(Default, Debug, Serialize, Deserialize)]
+pub struct DataManagerConfig {
+    pub endpoint: String,
+    pub api_key: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -48,10 +53,11 @@ impl Default for ApiConfig {
 
 #[derive(Default, Debug, Serialize, Deserialize)]
 pub struct Config {
-    pub ipfs_api_endpoint: String,
     pub db_connection_string: String,
-    pub web3_storage_api_key: Option<String>,
+    pub ipfs_gateway_endpoint: String,
+    pub data_cdn_endpoint: String,
     pub dev_mode: Option<bool>,
+    pub data_manager: DataManagerConfig,
     pub api: ApiConfig,
     pub chain_configs: HashMap<u64, ChainConfig>,
 }
