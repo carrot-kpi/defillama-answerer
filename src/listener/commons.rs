@@ -23,7 +23,7 @@ use tracing::info_span;
 use tracing_futures::Instrument;
 
 use crate::{
-    commons::{FETCH_SPECIFICATION_JSON_MAX_ELAPSED_TIME, STORE_CID_LOCALLY_MAX_ELAPSED_TIME},
+    commons::{FETCH_SPECIFICATION_JSON_MAX_ELAPSED_TIME, STORE_CID_MAX_ELAPSED_TIME},
     contracts::{
         defi_llama_oracle::{DefiLlamaOracle, Template},
         factory::FactoryEvents,
@@ -250,7 +250,7 @@ async fn store_cid_ipfs(cid: String, data_manager_http_client: Arc<HttpClient>) 
         cid.clone(),
         data_manager_http_client.clone(),
         ExponentialBackoffBuilder::new()
-            .with_max_elapsed_time(Some(STORE_CID_LOCALLY_MAX_ELAPSED_TIME))
+            .with_max_elapsed_time(Some(STORE_CID_MAX_ELAPSED_TIME))
             .build(),
     )
     .await
