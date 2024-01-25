@@ -43,7 +43,6 @@ pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations");
 
 const DEFAULT_LOGS_POLLING_INTERVAL_SECONDS: u64 = 30;
 const MAX_CALLS_PER_SECOND_DEFILLAMA: u32 = 7;
-const MAX_CALLS_PER_SECOND_WEB3_STORAGE: u32 = 3;
 
 fn setup_logging() -> anyhow::Result<()> {
     let subscriber = FmtSubscriber::builder()
@@ -108,36 +107,38 @@ pub async fn main() {
         db_connection.run_pending_migrations(MIGRATIONS).unwrap();
     }
 
-    tracing::info!("ipfs api endpoint: {}", config.ipfs_api_endpoint);
-    let ipfs_http_client = match HttpClient::builder(config.ipfs_api_endpoint, HTTP_TIMEOUT).build()
-    {
-        Ok(ipfs_http_client) => ipfs_http_client,
-        Err(error) => {
-            tracing::error!("{:#}", error);
-            exit(1);
-        }
-    };
-    let ipfs_http_client = Arc::new(ipfs_http_client);
+    tracing::info!("ipfs gateway endpoint: {}", config.ipfs_gateway_endpoint);
+    let ipfs_gateway_http_client =
+        match HttpClient::builder(config.ipfs_gateway_endpoint, HTTP_TIMEOUT).build() {
+            Ok(ipfs_gateway_http_client) => Arc::new(ipfs_gateway_http_client),
+            Err(error) => {
+                tracing::error!("{:#}", error);
+                exit(1);
+            }
+        };
 
-    let web3_storage_http_client = config.web3_storage_api_key.map(|token| {
-        let web3_storage_http_client =
-            match HttpClient::builder("https://api.web3.storage", HTTP_TIMEOUT)
-                .bearer_auth_token(token)
-                .rate_limiter(RateLimiter::direct(Quota::per_second(
-                    NonZeroU32::new(MAX_CALLS_PER_SECOND_WEB3_STORAGE).unwrap(),
-                )))
-                .build()
-            {
-                Ok(web3_storage_http_client) => web3_storage_http_client,
-                Err(error) => {
-                    tracing::error!("{:#}", error);
-                    exit(1);
-                }
-            };
-        let web3_storage_http_client = Arc::new(web3_storage_http_client);
-        tracing::info!("web3.storage pinning is enabled");
-        web3_storage_http_client
-    });
+    tracing::info!("data cdn endpoint: {}", config.data_cdn_endpoint);
+    let data_cdn_http_client =
+        match HttpClient::builder(config.data_cdn_endpoint, HTTP_TIMEOUT).build() {
+            Ok(data_cdn_http_client) => Arc::new(data_cdn_http_client),
+            Err(error) => {
+                tracing::error!("{:#}", error);
+                exit(1);
+            }
+        };
+
+    tracing::info!("data manager endpoint: {}", config.data_manager.endpoint);
+    let data_manager_http_client =
+        match HttpClient::builder(config.data_manager.endpoint, HTTP_TIMEOUT)
+            .bearer_auth_token(config.data_manager.api_key)
+            .build()
+        {
+            Ok(data_manager_http_client) => Arc::new(data_manager_http_client),
+            Err(error) => {
+                tracing::error!("{:#}", error);
+                exit(1);
+            }
+        };
 
     let defillama_http_client = match HttpClient::builder("https://api.llama.fi", HTTP_TIMEOUT)
         .rate_limiter(RateLimiter::direct(Quota::per_second(
@@ -192,9 +193,10 @@ pub async fn main() {
                 chain_config.template_id,
                 signer.clone(),
                 db_connection_pool.clone(),
-                ipfs_http_client.clone(),
+                data_cdn_http_client.clone(),
+                data_manager_http_client.clone(),
+                ipfs_gateway_http_client.clone(),
                 defillama_http_client.clone(),
-                web3_storage_http_client.clone(),
             ),
         )
         .past_events_query_max_rps(Some(1))

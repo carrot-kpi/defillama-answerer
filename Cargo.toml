@@ -11,7 +11,7 @@ strip = true
 anyhow = "1.0.75"
 async-trait = "0.1.73"
 backoff = { version = "0.4.0", features = ["tokio"] }
-carrot-commons = "0.1.1"
+carrot-commons = "0.2.3"
 confy = { version = "0.5.1", features = [
     "yaml_conf",
 ], default-features = false }

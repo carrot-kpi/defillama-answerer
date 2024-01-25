@@ -26,9 +26,10 @@ pub struct Listener {
     signer: Arc<SignerMiddleware<Provider<Http>, LocalWallet>>,
     db_connection_pool: Pool<ConnectionManager<PgConnection>>,
     scanning_past: bool,
-    ipfs_http_client: Arc<HttpClient>,
+    data_cdn_http_client: Arc<HttpClient>,
+    data_manager_http_client: Arc<HttpClient>,
+    ipfs_gateway_http_client: Arc<HttpClient>,
     defillama_http_client: Arc<HttpClient>,
-    web3_storage_http_client: Option<Arc<HttpClient>>,
 }
 
 impl Listener {
@@ -37,18 +38,20 @@ impl Listener {
         template_id: u64,
         signer: Arc<SignerMiddleware<Provider<Http>, LocalWallet>>,
         db_connection_pool: Pool<ConnectionManager<PgConnection>>,
-        ipfs_http_client: Arc<HttpClient>,
+        data_cdn_http_client: Arc<HttpClient>,
+        data_manager_http_client: Arc<HttpClient>,
+        ipfs_gateway_http_client: Arc<HttpClient>,
         defillama_http_client: Arc<HttpClient>,
-        web3_storage_http_client: Option<Arc<HttpClient>>,
     ) -> Self {
         Self {
             chain_id,
             template_id,
             signer,
             db_connection_pool,
-            ipfs_http_client,
+            data_cdn_http_client,
+            data_manager_http_client,
+            ipfs_gateway_http_client,
             defillama_http_client,
-            web3_storage_http_client,
             scanning_past: true,
         }
     }
@@ -94,9 +97,10 @@ impl Listener {
             self.chain_id,
             oracles_data,
             self.db_connection_pool.clone(),
-            self.ipfs_http_client.clone(),
+            self.data_cdn_http_client.clone(),
+            self.data_manager_http_client.clone(),
+            self.ipfs_gateway_http_client.clone(),
             self.defillama_http_client.clone(),
-            self.web3_storage_http_client.clone(),
         )
         .await;
     }

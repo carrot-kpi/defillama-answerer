@@ -1,7 +1,10 @@
-ipfs_api_endpoint: "http://127.0.0.1:5001"
 db_connection_string: "postgresql://user:password@127.0.0.1:5432/defillama-answerer"
-web3_storage_api_key: "key"
+ipfs_gateway_endpoint: "http://foo.bar"
+data_cdn_endpoint: "http://foo.bar"
 dev_mode: true
+data_manager:
+  endpoint: "http://127.0.0.1:5003"
+  api_key: "key"
 api:
   host: "127.0.0.1"
   port: 9080

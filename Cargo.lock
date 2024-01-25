@@ -439,9 +439,9 @@ dependencies = [
 
 [[package]]
 name = "carrot-commons"
-version = "0.1.1"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f5dea7c2d4bf13c9bf1005584a9bc6a5dbac916969773d6248a603bed0b42a2d"
+checksum = "2e2af552534b597bc02ed6d6618d7dd2fe1abb6d69bbd55fd51efe62b88e72b1"
 dependencies = [
  "backoff",
  "directories 5.0.1",
